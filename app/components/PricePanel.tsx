@@ -78,9 +78,11 @@ export function PricePanel({ quote, loading, error, refreshKey }: Props) {
 
       {distanceMiles !== null && (
         <div className="border-ink-600 text-paper-500 flex justify-between border-b px-6 py-3 text-xs">
-          <span className="tnum">{distanceMiles.toFixed(1)} miles</span>
+          {/* "driving miles", not just "miles" — the map above shows a straight
+              line, and this is the number the fare is actually based on. */}
+          <span className="tnum">{distanceMiles.toFixed(1)} driving miles</span>
           {durationMinutes !== null && (
-            <span className="tnum">≈ {durationMinutes} min drive</span>
+            <span className="tnum">≈ {durationMinutes} min in traffic</span>
           )}
         </div>
       )}

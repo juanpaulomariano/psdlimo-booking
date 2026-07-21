@@ -622,6 +622,9 @@ export function BookingWizard() {
             pickup={effectiveRoute.from}
             dropoff={effectiveRoute.to}
             hidden={rideType === "hourly"}
+            // Straight from the server quote — the SAME number the breakdown
+            // shows. The map never derives a distance of its own.
+            drivingMiles={quote?.distanceMiles ?? null}
           />
         </div>
 

@@ -19,9 +19,16 @@ type Props = {
   dropoff?: string;
   /** Skips the fetch entirely for ride types with no fixed destination. */
   hidden?: boolean;
+  /**
+   * Road miles, for the caption ONLY — and it must arrive from the server
+   * quote, never be derived here. This component draws a straight line, so if
+   * it ever calculated its own distance the customer would be shown a figure
+   * ~23% below what they are charged. Display, not computation.
+   */
+  drivingMiles?: number | null;
 };
 
-export function RouteMap({ pickup, dropoff, hidden }: Props) {
+export function RouteMap({ pickup, dropoff, hidden, drivingMiles }: Props) {
   const [state, setState] = useState<"idle" | "loading" | "ready" | "unavailable">("idle");
   const [src, setSrc] = useState<string | null>(null);
 
@@ -106,14 +113,34 @@ export function RouteMap({ pickup, dropoff, hidden }: Props) {
       </div>
 
       {dropoff && (
-        <figcaption className="border-ink-600 flex items-center gap-2.5 border-t px-4 py-2.5 text-xs">
-          <span className="bg-brass-400 h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden />
-          <span className="text-paper-300 truncate">{pickup}</span>
-          <span className="text-paper-500 shrink-0" aria-hidden>
-            →
-          </span>
-          <span className="bg-paper-100 h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden />
-          <span className="text-paper-300 truncate">{dropoff}</span>
+        <figcaption className="border-ink-600 border-t">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 text-xs">
+            <span className="bg-brass-400 h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden />
+            <span className="text-paper-300 truncate">{pickup}</span>
+            <span className="text-paper-500 shrink-0" aria-hidden>
+              →
+            </span>
+            <span className="bg-paper-100 h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden />
+            <span className="text-paper-300 truncate">{dropoff}</span>
+          </div>
+
+          {/*
+            The disclaimer. The map draws a straight line, which is ~23% shorter
+            than the road distance the fare is actually based on. A customer who
+            eyeballs the line and mentally converts it to miles would think they
+            had been overcharged — so the real figure is stated right here,
+            matching the number in the price breakdown exactly.
+          */}
+          <p className="text-paper-500 border-ink-700 border-t px-4 py-2 text-[11px] leading-relaxed">
+            Route shown for reference. Pricing uses actual driving distance
+            {typeof drivingMiles === "number" && (
+              <>
+                {" — "}
+                <span className="tnum text-paper-300">{drivingMiles.toFixed(1)} miles</span>
+              </>
+            )}
+            .
+          </p>
         </figcaption>
       )}
     </figure>
