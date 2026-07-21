@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { calculatePrice } from "@/lib/pricing";
 import { rideDetailsSchema } from "@/lib/booking-schema";
+import { MAX_PASSENGERS, VEHICLE_CLASSES } from "@/config/rates";
 import { formatPickup, laWallClockToISO, meetsLeadTime } from "@/lib/datetime";
 
 let passed = 0;
@@ -266,7 +267,53 @@ check("lead time rejects a pickup in the past", () => {
   assert.equal(meetsLeadTime("2026-07-21T12:00:00Z", now), false);
 });
 
+console.log("\nVehicle capacity gating\n");
+
+/**
+ * Mirrors the effectiveVehicleClass derivation in BookingWizard.tsx. If these
+ * two ever diverge the UI could quote a vehicle that cannot seat the party.
+ */
+function effectiveVehicleClass(selected: string, passengers: number): string {
+  const found = VEHICLE_CLASSES.find((v) => v.id === selected);
+  if (found && passengers <= found.capacity) return selected;
+  return VEHICLE_CLASSES.find((v) => v.capacity >= passengers)?.id ?? selected;
+}
+
+check("a 2-passenger party keeps its Business selection", () => {
+  assert.equal(effectiveVehicleClass("business", 2), "business");
+});
+
+check("6 passengers falls back off Business (capacity 3) to SUV/Van", () => {
+  assert.equal(effectiveVehicleClass("business", 6), "suv-van");
+});
+
+check("6 passengers falls back off First Class too", () => {
+  assert.equal(effectiveVehicleClass("first", 6), "suv-van");
+});
+
+check("14 passengers still resolves to a real vehicle", () => {
+  const result = effectiveVehicleClass("business", 14);
+  const vehicle = VEHICLE_CLASSES.find((v) => v.id === result);
+  assert.ok(vehicle, "must resolve to a known class");
+  assert.ok(vehicle.capacity >= 14, `${result} seats ${vehicle.capacity}, need 14`);
+});
+
+check("no vehicle is ever quoted below the party size", () => {
+  for (let pax = 1; pax <= MAX_PASSENGERS; pax++) {
+    for (const start of VEHICLE_CLASSES) {
+      const result = effectiveVehicleClass(start.id, pax);
+      const vehicle = VEHICLE_CLASSES.find((v) => v.id === result)!;
+      assert.ok(
+        vehicle.capacity >= pax,
+        `${pax} pax starting from ${start.id} resolved to ${result} (seats ${vehicle.capacity})`,
+      );
+    }
+  }
+});
+
 // ── Summary ────────────────────────────────────────────────────────────────
+// Must stay the LAST statement in this file — anything appended below it would
+// not be counted, and a failure there would still exit 0.
 console.log("");
 if (failures.length > 0) {
   console.error(`FAILED — ${failures.length} of ${passed + failures.length} checks failed:`);
