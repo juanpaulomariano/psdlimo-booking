@@ -31,6 +31,7 @@ import { laToday, laWallClockToISO, meetsLeadTime } from "@/lib/datetime";
 import type { QuoteResponse } from "@/app/api/quote/route";
 import { AddressAutocomplete } from "./AddressAutocomplete";
 import { PricePanel } from "./PricePanel";
+import { RouteMap } from "./RouteMap";
 import { GhostButton, PrimaryButton, SelectField, Stepper, TextArea, TextField } from "./ui";
 
 type RideType = "distance" | "hourly" | "flat";
@@ -610,6 +611,19 @@ export function BookingWizard() {
           error={quoteError}
           refreshKey={refreshKey}
         />
+
+        {/*
+          Display only — the map shows WHERE the ride goes, never how far. The
+          priced distance comes from the server and this component cannot see it.
+          Hidden for hourly rides, which have no fixed destination to draw.
+        */}
+        <div className="mt-4">
+          <RouteMap
+            pickup={effectiveRoute.from}
+            dropoff={effectiveRoute.to}
+            hidden={rideType === "hourly"}
+          />
+        </div>
 
         {quote && step > 1 && (
           <dl className="text-paper-500 mt-5 space-y-1.5 text-xs">
