@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "ghl:ids": "tsx scripts/fetch-ghl-ids.ts",
-    "test:pricing": "tsx scripts/test-pricing.ts"
+    "test:pricing": "tsx scripts/test-pricing.ts",
+    "test:payments": "tsx --conditions=react-server scripts/test-payments.ts",
+    "test": "npm run test:pricing && npm run test:payments"
   },
   "dependencies": {
     "nanoid": "^6.0.0",

@@ -141,6 +141,20 @@ export function getFlatRoute(id: FlatRouteId) {
   return found;
 }
 
+/* ── Currency ───────────────────────────────────────────────────────────────
+ * The business currency is USD: every price shown, stored, and pushed to the
+ * CRM is USD. But the demo Xendit account is Philippine-registered and cannot
+ * issue USD invoices — verified 2026-07-21 by calling the API:
+ *   USD -> {"error_code":"UNSUPPORTED_CURRENCY"}
+ *   PHP -> 201 Created
+ *
+ * So the invoice — and ONLY the invoice — is denominated in PHP. The conversion
+ * happens at one point in the codebase (lib/payments.ts) and nowhere else.
+ * At go-live the processor becomes client-owned and charges USD directly, and
+ * this constant disappears with the swap.
+ */
+export const USD_TO_PHP_FALLBACK = 58.5; // PLACEHOLDER — fixed demo rate, not a live FX feed
+
 /* ── Booking rules ─────────────────────────────────────────────────────────── */
 
 /** Minimum lead time between "now" and the pickup, in hours. */

@@ -8,7 +8,24 @@ they get *stated* during the demo rather than found afterwards.
 
 ## 1. Xendit charges in PHP, the UI displays USD
 
-**Status:** confirmed 2026-07-21 — this Xendit test account cannot issue USD invoices.
+**Status:** confirmed 2026-07-21 by calling the API directly, not by reading the
+dashboard:
+
+```
+POST /v2/invoices  currency: USD
+  -> {"error_code":"UNSUPPORTED_CURRENCY",
+      "message":"currency USD is not configured in your settings yet"}
+
+POST /v2/invoices  currency: PHP
+  -> 201, invoice_url issued
+```
+
+So the conversion is genuinely required, not a precaution. Account: Virtulink
+Digital Marketing Services. Test invoices are issued on `checkout-staging.xendit.co`.
+
+Payment methods offered on the hosted page in this account: cards, plus the
+Philippine e-wallets GCash, Maya, GrabPay and ShopeePay. Only the card path is
+part of the demo script.
 
 The system prices, displays, and records everything in **USD**. The hosted payment
 page will show **PHP**, because that is the only currency this test account supports.
@@ -27,6 +44,33 @@ swap touches one file, by design.
 Philippine-registered, so the test charge is denominated in pesos. Every price,
 record, and CRM value is USD. At go-live this moves to your own US processor and
 the conversion goes away."
+
+---
+
+## 1a. Test cards for the demo
+
+From Xendit's own test-mode documentation (verified 2026-07-21). Do NOT use
+Stripe's 4242 card — it is not Xendit's and will fail.
+
+**Use this one for the demo — 3DS frictionless, no extra step:**
+
+```
+4000 0000 0000 1000     VISA, succeeds without a challenge screen
+CVV: any 3 digits (123)
+Expiry: any future date (02/30)
+```
+
+Alternatives:
+
+| Card | Brand | Behaviour |
+|---|---|---|
+| `5200000000001005` | Mastercard | frictionless success |
+| `4000000000002503` | VISA | 3DS **challenge** — a simulator appears; pick AUTHENTICATED to succeed, or any other option to force a failure |
+| `5200000000002151` | Mastercard | 3DS challenge, same as above |
+
+The challenge cards are the ones to use if the client asks to see a *failed*
+payment: choose UNAUTHENTICATED at the simulator and the customer lands on
+`/cancelled` with no CRM record — which is the behaviour worth showing.
 
 ---
 

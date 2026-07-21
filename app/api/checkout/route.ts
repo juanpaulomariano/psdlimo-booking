@@ -1,0 +1,178 @@
+/**
+ * POST /api/checkout — create a payment invoice for a booking.
+ *
+ * THE PRICE IS RECOMPUTED HERE. The request schema has no `total` field, so a
+ * client-submitted price is not merely ignored — there is nowhere to put it.
+ * The amount charged comes from lib/pricing.ts, fed by a fresh Routes API
+ * lookup, exactly as /api/quote does it. Tampering with the browser changes the
+ * displayed number and nothing else. See CLAUDE.md invariant 1.
+ *
+ * This route creates NO CRM record. GoHighLevel is written only from the
+ * verified payment callback — paid ⇔ exists in GHL. An abandoned invoice must
+ * leave zero trace. See CLAUDE.md invariant 2.
+ */
+
+import { NextResponse } from "next/server";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+import { checkoutRequestSchema, type BookingMetadata } from "@/lib/booking-schema";
+import { calculatePrice } from "@/lib/pricing";
+import { RoutingError, getDrivingRoute } from "@/lib/maps";
+import { PaymentError, createInvoice } from "@/lib/payments";
+import { MIN_LEAD_TIME_HOURS, getFlatRoute, getVehicleClass } from "@/config/rates";
+import { formatPickupShort, meetsLeadTime } from "@/lib/datetime";
+
+/** Airport detection for the service-* tag. Mirrors the wizard's own check. */
+const AIRPORT_PATTERN = /\b(airport|sfo|oak|sjc|international terminal)\b/i;
+
+export async function POST(request: Request) {
+  // ── Parse ────────────────────────────────────────────────────────────────
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
+  }
+
+  const parsed = checkoutRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Those booking details are not valid.", details: z.treeifyError(parsed.error) },
+      { status: 400 },
+    );
+  }
+
+  const { ride, contact } = parsed.data;
+
+  // ── Lead time, re-checked at the money boundary ──────────────────────────
+  if (!meetsLeadTime(ride.pickupAt)) {
+    return NextResponse.json(
+      { error: `Pickups must be booked at least ${MIN_LEAD_TIME_HOURS} hours in advance.` },
+      { status: 400 },
+    );
+  }
+
+  // ── Distance: a FRESH lookup, not a value carried from the quote ─────────
+  let distanceMiles: number | null = null;
+  if (ride.rideType === "distance") {
+    try {
+      const route = await getDrivingRoute(ride.pickup, ride.dropoff);
+      distanceMiles = route.distanceMiles;
+    } catch (err) {
+      if (err instanceof RoutingError) {
+        const status = err.code === "INVALID_ADDRESS" || err.code === "NO_ROUTE" ? 400 : 502;
+        console.error(`[checkout] routing failed (${err.code}): ${err.message}`);
+        return NextResponse.json({ error: err.message }, { status });
+      }
+      throw err;
+    }
+  }
+
+  // ── Price ────────────────────────────────────────────────────────────────
+  let breakdown: ReturnType<typeof calculatePrice>;
+  try {
+    breakdown = calculatePrice(ride, distanceMiles);
+  } catch (err) {
+    console.error("[checkout] pricing failed:", err);
+    return NextResponse.json({ error: "Could not price that ride." }, { status: 500 });
+  }
+
+  /*
+   * ── external_id: generated exactly ONCE, here ──────────────────────────
+   * One value doing three jobs: the booking reference shown to the customer,
+   * the idempotency key that stops duplicate callbacks creating duplicate
+   * opportunities, and the join key across the payment dashboard and our logs.
+   * Generating it in a second place would quietly break all three.
+   */
+  const externalId = `psdlimo-${Date.now()}-${nanoid(8)}`;
+
+  // ── Derive the display strings and the service tag ───────────────────────
+  const pickupLocation =
+    ride.rideType === "flat" ? getFlatRoute(ride.flatRouteId).from : ride.pickup;
+  const dropoffLocation =
+    ride.rideType === "flat"
+      ? getFlatRoute(ride.flatRouteId).to
+      : ride.rideType === "distance"
+        ? ride.dropoff
+        : "As directed";
+
+  const serviceTag: BookingMetadata["service_tag"] =
+    ride.rideType === "hourly"
+      ? "service-hourly"
+      : (ride.rideType === "flat" && getFlatRoute(ride.flatRouteId).isAirport) ||
+          AIRPORT_PATTERN.test(pickupLocation) ||
+          AIRPORT_PATTERN.test(dropoffLocation)
+        ? "service-airport"
+        : "service-pointtopoint";
+
+  const vehicleLabel = getVehicleClass(ride.vehicleClass).label;
+
+  /*
+   * ── Metadata: this demo's entire "database" ────────────────────────────
+   * There is no datastore. Everything the CRM needs must survive the round trip
+   * through the payment provider inside this object, so it is written once here
+   * and validated on the way back out by bookingMetadataSchema.
+   *
+   * specialRequests is user free-text: capped at 400 in the UI AND truncated
+   * here. The UI limit is a courtesy; this one is the actual guarantee.
+   */
+  const metadata: BookingMetadata = {
+    external_id: externalId,
+    ride_type: ride.rideType,
+    pickup_location: pickupLocation,
+    dropoff_location: dropoffLocation,
+    pickup_datetime: ride.pickupAt,
+    vehicle_class: ride.vehicleClass,
+    passengers: ride.passengers,
+    luggage: ride.luggage,
+    hours: ride.rideType === "hourly" ? ride.hours : null,
+    addons: ride.addOns.join(","),
+    flight_number: (contact.flightNumber ?? "").slice(0, 16),
+    special_requests: (contact.specialRequests ?? "").slice(0, 400),
+    quoted_total: breakdown.total,
+    currency: breakdown.currency,
+    breakdown_json: JSON.stringify(breakdown.lines),
+    contact_name: contact.name,
+    contact_email: contact.email,
+    contact_phone: contact.phone,
+    service_tag: serviceTag,
+  };
+
+  // ── Create the invoice ───────────────────────────────────────────────────
+  const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+
+  try {
+    const invoice = await createInvoice({
+      externalId,
+      amountUSD: breakdown.total,
+      customer: { name: contact.name, email: contact.email, phone: contact.phone },
+      description: `${vehicleLabel} · ${formatPickupShort(ride.pickupAt)} · ${pickupLocation} → ${dropoffLocation}`,
+      metadata,
+      successUrl: `${baseUrl}/success?ref=${encodeURIComponent(externalId)}`,
+      failureUrl: `${baseUrl}/cancelled?ref=${encodeURIComponent(externalId)}`,
+    });
+
+    console.log(
+      `[checkout] invoice created ${externalId} — $${breakdown.total} USD ` +
+        `charged as ${invoice.chargedAmount} ${invoice.chargedCurrency} (provider ${invoice.providerInvoiceId})`,
+    );
+
+    return NextResponse.json({
+      invoiceUrl: invoice.invoiceUrl,
+      reference: externalId,
+      total: breakdown.total,
+      currency: breakdown.currency,
+      chargedAmount: invoice.chargedAmount,
+      chargedCurrency: invoice.chargedCurrency,
+    });
+  } catch (err) {
+    if (err instanceof PaymentError) {
+      console.error(`[checkout] payment provider error (${err.code}): ${err.message}`, err.detail ?? "");
+      return NextResponse.json(
+        { error: "We could not start your payment. Please try again in a moment." },
+        { status: 502 },
+      );
+    }
+    throw err;
+  }
+}
