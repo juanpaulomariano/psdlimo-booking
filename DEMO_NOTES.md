@@ -49,21 +49,27 @@ Swapping in real pricing means editing that one file.
 
 ## 3. Google API key restrictions
 
-**Status: OUTSTANDING as of 2026-07-21.** Both keys in the Google Cloud project
-currently show "35 APIs" — i.e. unrestricted.
-
-This must be fixed before any public deployment:
+**Status: RESOLVED 2026-07-21.** Two keys, each restricted to exactly one API.
 
 | Key | Application restriction | API restriction |
 |---|---|---|
 | Server (`GOOGLE_MAPS_SERVER_KEY`) | None — server calls send no referrer | **Routes API only** |
 | Browser (`NEXT_PUBLIC_MAPS_BROWSER_KEY`) | Websites: `http://localhost:3000/*`, `https://*.vercel.app/*` | **Places API (New) only** |
 
-The browser key is embedded in the page and readable by anyone. Unrestricted, it
-lets a stranger bill 35 Google APIs to the account owner's card. The server key is
-never sent to the browser and is the only key permitted to call Routes API.
+Verified by calling both APIs with both keys — the restrictions are enforced, not
+merely configured:
 
-Add the production domain to the browser key's referrer list at go-live.
+| | Routes API | Places API |
+|---|---|---|
+| Server key | 200 | **403** |
+| Browser key | **403** | 200 |
+
+This is the property worth stating: the browser key ships in the page source and
+is readable by anyone, and it **cannot** call Routes API. Lifting it from
+view-source buys an attacker nothing billable on the routing side.
+
+**At go-live:** add the production domain to the browser key's referrer list.
+Keep the two keys separate — never let one key serve both roles.
 
 ---
 
