@@ -148,12 +148,12 @@ Auth: Private Integration token (sandbox sub-account) with `contacts.write`, `op
 On a verified PAID/SETTLED invoice callback:
 1. Verify `x-callback-token` header (constant-time compare against `XENDIT_CALLBACK_TOKEN`).
 2. **Idempotency:** search opportunities for `payment_ref_id == external_id` → if found, return 200.
-3. Upsert contact by email+phone → name, email, phone + **contact-level** fields + tags `source-website`, `pay-card`, `pay-paid`, derived `service-*`.
+3. Upsert contact by email+phone → name, email, phone + **contact-level** fields + tags `source.website`, `pay.card`, `pay.paid`, derived `service-*`.
 4. Create opportunity in pipeline `PSDLimo Bookings`, stage **Confirmed** (paid ⇒ skips New inquiry/Quoted by design), monetaryValue = amount, name `"{Name} — {date} {route}"`.
 5. Write **opportunity-level** Ride Details fields (see §7) including `payment_ref_id = external_id`.
 6. Return 200. Any GHL error → 500 → Xendit retries the callback automatically. NOTE: Xendit's retry window is shorter and less generous than some processors — if a callback exhausts retries, it can be re-sent manually from the Xendit dashboard (Callbacks log → resend). That manual resend is the demo-day recovery move; the idempotency key makes it always safe.
 
-Service-tag derivation: flat airport route or airport string in pickup/dropoff → `service-airport`; rideType hourly → `service-hourly`; else `service-pointtopoint`.
+Service-tag derivation: flat airport route or airport string in pickup/dropoff → `service.airport`; rideType hourly → `service.hourly`; else `service.pointtopoint`.
 
 ---
 
@@ -166,7 +166,7 @@ Service-tag derivation: flat airport route or airport string in pickup/dropoff �
 
 **Contact-level custom fields:** `client_type` (dropdown) · `preferred_vehicle` (dropdown) · `lifetime_rides` (number) · `last_ride_date` (date)
 
-**Tags:** `source-website` · `service-airport` · `service-hourly` · `service-pointtopoint` · `pay-card` · `pay-paid`
+**Tags:** `source.website` · `service.airport` · `service.hourly` · `service.pointtopoint` · `pay.card` · `pay.paid`
 
 Then create the Private Integration (Settings → Private Integrations, scopes above) and run `npm run ghl:ids` — it writes `config/ghl-fields.json` and errors on any missing field.
 

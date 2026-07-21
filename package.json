@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ghl:ids": "tsx scripts/fetch-ghl-ids.ts",
+    "ghl:ids": "tsx --env-file=.env.local scripts/fetch-ghl-ids.ts",
     "test:pricing": "tsx scripts/test-pricing.ts",
     "test:payments": "tsx --conditions=react-server scripts/test-payments.ts",
     "test": "npm run test:pricing && npm run test:payments"

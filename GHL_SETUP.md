@@ -104,22 +104,26 @@ so they are safe to overwrite on a repeat booking.
 
 ## Step 5 — Tags (6)
 
-**Settings → Tags → Add Tag.** All lowercase, hyphenated, exactly:
+**Settings → Tags → Add Tag.** All lowercase, **dot-separated**, exactly:
 
 ```
-source-website
-service-airport
-service-hourly
-service-pointtopoint
-pay-card
-pay-paid
+source.website
+service.airport
+service.hourly
+service.pointtopoint
+pay.card
+pay.paid
 ```
+
+> **Note:** ARCHITECTURE.md originally specified hyphens (`source-website`). The
+> sandbox uses dots, and the CRM is the source of truth for tag names — the code
+> and every doc now match what actually exists in GHL.
 
 GHL will usually create a tag on the fly when applied, but pre-creating them means
-a typo shows up now rather than as a stray `Service-Airport` on demo day.
+a typo shows up now rather than as a stray `Service.Airport` on demo day.
 
-Each booking receives `source-website`, `pay-card`, `pay-paid`, and exactly one
-`service-*` derived from the ride.
+Each booking receives `source.website`, `pay.card`, `pay.paid`, and exactly one
+`service.*` derived from the ride.
 
 ---
 

@@ -142,6 +142,31 @@ the goal is only "show the client it is geographically real".
 
 ---
 
+## 3b. GHL quirks worth knowing before editing fields
+
+**Tags use dots, not hyphens.** `source.website`, not `source-website`.
+ARCHITECTURE.md originally said hyphens; the sandbox was built with dots and the
+CRM wins. Code and docs now match the CRM.
+
+**The custom-field UI displays dropdown values with hyphens stripped.** The
+Vehicle Class field shows label `suv-van` with value `suvvan` in the GHL editor,
+which looks like a mismatch that would break the write. It is not — the API
+reports the real stored value:
+
+```
+GET /locations/{id}/customFields?model=opportunity
+  opportunity.vehicle_class => ["business","first","suv-van","electric"]
+```
+
+The hyphen is intact. This was verified before assuming either way, because the
+"fix" — mapping `suv-van` → `suvvan` in code — would have introduced a second
+vocabulary and actually broken the write. **Trust the API, not the field editor.**
+
+`npm run ghl:ids` checks picklist options against `config/rates.ts` on every run,
+so if a dropdown value ever does drift, it fails loudly and names the field.
+
+---
+
 ## 4. Hosting
 
 Vercel free tier. Fine for demo volume; the go-live constraint is that the Hobby
