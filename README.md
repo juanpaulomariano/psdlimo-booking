@@ -56,15 +56,28 @@ Xendit callbacks need a **public URL**, so `localhost` alone cannot complete the
 | Customer abandons the payment page | Invoice simply expires. No PAID callback, no CRM record. This is correct, not a bug. |
 | Timezone | America/Los_Angeles everywhere, explicitly |
 
+## Live demo
+
+**https://psdlimo-booking.vercel.app**
+
+Webhook endpoint (register this in Xendit → Settings → Webhooks, "Invoices paid"):
+
+```
+https://psdlimo-booking.vercel.app/api/xendit-webhook
+```
+
+Pay with Xendit's test card `4000 0000 0000 1000`, CVV `123`, expiry `02/30`.
+Full card list and demo talking points in [`DEMO_NOTES.md`](DEMO_NOTES.md).
+
 ## Status
 
 Built section by section; each section verified against the live API before moving on.
 
 - [x] 0 — Scaffold, repo, deploy pipeline
-- [ ] 1 — Pricing engine + shared zod schemas
-- [ ] 2 — Google Routes API + `/api/quote`
-- [ ] 3 — Booking wizard UI
-- [ ] 4 — Xendit invoices + `/api/checkout`
-- [ ] 5 — GHL field-ID resolution
-- [ ] 6 — Verified webhook + GHL push
-- [ ] 7 — Full end-to-end demo pass
+- [x] 1 — Pricing engine + shared zod schemas
+- [x] 2 — Google Routes API + `/api/quote`
+- [x] 3 — Booking wizard UI
+- [x] 4 — Xendit invoices + `/api/checkout`
+- [x] 5 — GHL field-ID resolution
+- [x] 6 — Verified webhook + GHL push
+- [ ] 7 — Full end-to-end demo pass (needs the Xendit callback URL registered)
