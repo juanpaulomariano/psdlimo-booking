@@ -67,6 +67,31 @@ Add the production domain to the browser key's referrer list at go-live.
 
 ---
 
+## 3a. Deferred enhancement — visible route map
+
+**Decided 2026-07-21: build after the core loop works, not before.**
+
+Distance calculation does not need a map and already works: `computeRouteMatrix`
+returns driving miles server-side, and that figure is what prices the ride. A
+visible map would be *presentation only*.
+
+If added, the rules are:
+
+- **Display only.** The price comes from the server's `computeRouteMatrix` figure
+  and nothing else. If the map draws its own route (Directions API), its mileage
+  can differ slightly — two disagreeing numbers on screen is worse than no map.
+  Never let the map's distance reach the pricing engine.
+- Requires **Maps JavaScript API** (and Directions API for a drawn polyline)
+  enabled and added to the **browser** key — which makes item 3 above more
+  urgent, not less. Do not add map APIs to an unrestricted public key.
+- Billed separately from Routes API. Demo volume should sit inside the free tier,
+  but it is additional surface on the billing account.
+
+A Static Maps image (two pins, no interactive JS) is the cheaper alternative if
+the goal is only "show the client it is geographically real".
+
+---
+
 ## 4. Hosting
 
 Vercel free tier. Fine for demo volume; the go-live constraint is that the Hobby
