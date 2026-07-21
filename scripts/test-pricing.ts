@@ -311,6 +311,53 @@ check("no vehicle is ever quoted below the party size", () => {
   }
 });
 
+console.log("\nPricing uses ROAD distance, never straight-line\n");
+
+/*
+ * The booking page draws a straight A→B line on a static map. That line is
+ * DECORATION — the price comes from Routes API computeRouteMatrix, which
+ * returns true road distance.
+ *
+ * Measured on the real SFO → Hotel Zephyr booking:
+ *   straight line   13.1 mi
+ *   driving route   16.0 mi   (23% longer)
+ *
+ * These tests pin the size of the error so that if anyone ever wires the map
+ * distance into the engine, the suite fails instead of the client being
+ * quietly undercharged.
+ */
+check("road distance prices materially higher than straight-line", () => {
+  const ride = rideDetailsSchema.parse({
+    ...baseRide,
+    rideType: "distance",
+    pickup: "San Francisco International Airport, CA",
+    dropoff: "Hotel Zephyr, Beach Street, San Francisco, CA",
+  } as unknown);
+
+  const road = calculatePrice(ride, 16.0);
+  const straightLine = calculatePrice(ride, 13.1);
+
+  assert.ok(
+    road.total > straightLine.total,
+    "road distance must price higher than straight-line — if these ever match, " +
+      "something is feeding the map's distance into the pricing engine",
+  );
+
+  // 2.9 mi × $4.50 × 1.25 service fee ≈ $16 of undercharging on ONE ride.
+  const gap = road.total - straightLine.total;
+  assert.ok(gap >= 15, `expected a material gap, got $${gap}`);
+});
+
+check("the engine is pure — identical inputs always give an identical price", () => {
+  const ride = rideDetailsSchema.parse({
+    ...baseRide,
+    rideType: "distance",
+    pickup: "San Francisco International Airport, CA",
+    dropoff: "Hotel Zephyr, Beach Street, San Francisco, CA",
+  } as unknown);
+  assert.deepEqual(calculatePrice(ride, 16.0), calculatePrice(ride, 16.0));
+});
+
 // ── Summary ────────────────────────────────────────────────────────────────
 // Must stay the LAST statement in this file — anything appended below it would
 // not be counted, and a failure there would still exit 0.

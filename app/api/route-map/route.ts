@@ -52,9 +52,24 @@ export async function GET(request: Request) {
   params.append("markers", `color:0xc9a961|label:A|${pickup}`);
   if (dropoff && dropoff.length >= 3) {
     params.append("markers", `color:0xf5f4f1|label:B|${dropoff}`);
-    // A straight line, deliberately: this is an "A to B" indicator, not a
-    // driving route. Drawing the real polyline would require a Directions call
-    // whose mileage could differ from the priced figure.
+    /*
+     * A STRAIGHT LINE, DELIBERATELY — and it must never be mistaken for the
+     * priced distance.
+     *
+     * Measured on SFO -> Hotel Zephyr: the straight line is 13.1 mi while the
+     * real driving distance is 16.0 mi — 23% longer by road. Pricing off the
+     * straight line would undercharge that single ride by $13.39.
+     *
+     * The price comes from Routes API computeRouteMatrix in lib/maps.ts, which
+     * returns true road distance, and it is imported ONLY by /api/quote and
+     * /api/checkout. This file imports no pricing code, and the RouteMap
+     * component receives only two address strings — it cannot see a distance or
+     * a price. The two paths are structurally incapable of crossing.
+     *
+     * Drawing the real polyline would need a Directions call returning its own
+     * mileage, which could disagree with the priced figure and put two
+     * conflicting numbers in front of the customer.
+     */
     params.append("path", `color:0xc9a961aa|weight:3|${pickup}|${dropoff}`);
   }
 
