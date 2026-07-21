@@ -6,6 +6,7 @@ payment page → the booking lands in GoHighLevel fully tagged and staged, untou
 **No database.** The Xendit invoice metadata carries the booking between payment and CRM.
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — what we build and why (source of truth for scope)
+- [`COSTS.md`](COSTS.md) — what it costs to run (short answer: $0/mo in API fees at the stated volume)
 - [`CLAUDE.md`](CLAUDE.md) — how to work in this codebase, and the traps
 
 ## Stack
