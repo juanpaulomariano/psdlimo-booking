@@ -33,9 +33,14 @@ export const MAP_STYLE_PARAMS: readonly string[] = [
   "feature:road|element:geometry.stroke|visibility:off",
   "feature:road|element:labels.text.fill|color:0x6f6d69",
   "feature:road.highway|element:geometry|color:0x35353b",
-  "feature:road.highway|element:labels|visibility:simplified",
   "feature:road.arterial|element:labels|visibility:off",
   "feature:road.local|element:labels|visibility:off",
+
+  // Highway SHIELDS (the I-280 / US-101 badges) render in full colour — bright
+  // blue and red — which is the only thing that breaks the monochrome once
+  // everything else is muted. Turning off highway labels removes them; the
+  // route is communicated by the A/B pins and the line, not by road numbers.
+  "feature:road.highway|element:labels|visibility:off",
 
   // Transit — off, irrelevant to a chauffeur booking
   "feature:transit|element:all|visibility:off",
