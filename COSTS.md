@@ -116,7 +116,49 @@ already exists. Nothing bills for it.
 - receiving one costs nothing: 65 bookings/month is 65 function invocations,
   which is inside the included allowance on every hosting tier
 - the ~3 GoHighLevel API calls per booking are covered by the subscription the
-  client already pays for; GHL does not meter API calls on standard plans
+  client already pays for
+
+### IMPORTANT — this is NOT GoHighLevel's "Inbound Webhook"
+
+Two different things share the word "webhook", and only one of them bills.
+
+**GoHighLevel's Inbound Webhook is a Premium Workflow Action**, priced at
+**$0.01 per execution** (100 free executions per sub-account, then charged). At
+65 bookings/month that would be roughly $0.65/month, and it requires Premium
+Actions to be enabled on the sub-account.
+
+**We do not use it.** The distinction is the direction of traffic:
+
+| | GHL Inbound Webhook | What we built |
+|---|---|---|
+| What it is | Premium action inside a GHL *workflow* | HTTP route in our own app |
+| Who receives the request | GHL's servers | our application |
+| Billing | $0.01/execution after 100 free | not a billable surface |
+| Configured in | GHL workflow builder | `app/api/xendit-webhook/route.ts` |
+
+```
+GHL Inbound Webhook:  external system -> GHL workflow -> billed per execution
+What we built:        Xendit -> OUR app -> GHL REST API
+```
+
+Premium Actions bill for **workflow executions inside GoHighLevel**. We never
+enter the workflow builder. Our app receives the payment callback itself, then
+makes ordinary authenticated REST calls — exactly two endpoints, plus a search:
+
+```
+POST /contacts/upsert
+POST /opportunities/
+GET  /opportunities/search      (the duplicate check)
+```
+
+These are standard API calls on a Private Integration token, not premium
+workflow actions.
+
+**Caveat, stated honestly:** GoHighLevel does not publish a hard API rate limit
+for Private Integrations on standard plans, and they could change that policy.
+At ~200 calls/month we are nowhere near any plausible limit, but this is
+someone else's pricing page and worth re-checking at go-live. A change there
+would affect every GHL integration, not only this one.
 
 **The $20/month in §5 is HOSTING THE WHOLE SITE**, not the webhook. It would be
 the same figure if the webhook did not exist.
@@ -210,11 +252,15 @@ Neither affects normal operation at the stated volume.
 
 | | Cost |
 |---|---|
-| Inbound webhook | $0 — not a product, just a URL in the app |
+| Our webhook endpoint | $0 — a URL in the app, not GHL's premium action |
 | Google Maps APIs | $0 — 3% of the free tier |
-| GoHighLevel API calls | $0 — in the existing subscription |
+| GoHighLevel REST API calls | $0 — in the existing subscription |
 | Payment provider callbacks | $0 — part of taking the payment |
 | **Hosting (the whole site)** | **~$20/mo** |
+
+*If this had been built on GoHighLevel's Inbound Webhook premium action instead,
+add ~$0.01 per booking plus enabling Premium Actions on the sub-account. Small,
+but it is a line item we do not have.*
 
 Payment processing fees are per-transaction and set by whichever processor is
 used at go-live — a cost of doing business, not a cost of this system.
