@@ -105,7 +105,35 @@ revenue that, at these fares, would be well into six figures.
 
 ## 4. The inbound webhook
 
-**Cost: $0.**
+**Cost: $0. There is no charge for the webhook, at any volume.**
+
+To be explicit, because this gets asked: the webhook is not a product, a
+subscription, or a metered service. It is a URL inside the application that
+already exists. Nothing bills for it.
+
+- the payment provider does not charge to send callbacks — that is part of
+  taking the payment
+- receiving one costs nothing: 65 bookings/month is 65 function invocations,
+  which is inside the included allowance on every hosting tier
+- the ~3 GoHighLevel API calls per booking are covered by the subscription the
+  client already pays for; GHL does not meter API calls on standard plans
+
+**The $20/month in §5 is HOSTING THE WHOLE SITE**, not the webhook. It would be
+the same figure if the webhook did not exist.
+
+### What the alternative would have cost
+
+Had this been built on an automation platform (n8n, Zapier, Make), the bill
+would be:
+
+| | This build | With an automation platform |
+|---|---|---|
+| Hosting | ~$20/mo | ~$20/mo (still needed) |
+| Automation platform | **—** | ~$20–50/mo, or self-hosting |
+| Per-execution limits | **none** | grows with booking volume |
+
+Handling the callback in the application removes an entire cost line rather than
+adding one.
 
 The payment provider does not charge for callbacks. Each paid booking sends one
 POST to `/api/xendit-webhook`, which runs as a serverless function.
@@ -175,6 +203,21 @@ Neither affects normal operation at the stated volume.
 > bookings before the free tier runs out, and even then it is roughly $25/month.
 > The only real running cost is hosting at about **$20/month** once we move off
 > the free tier, which we have to do because its licence is non-commercial.
+
+### If asked "so what do we actually pay for?"
+
+**One thing: hosting, ~$20/month.** Everything else is $0 at this volume.
+
+| | Cost |
+|---|---|
+| Inbound webhook | $0 — not a product, just a URL in the app |
+| Google Maps APIs | $0 — 3% of the free tier |
+| GoHighLevel API calls | $0 — in the existing subscription |
+| Payment provider callbacks | $0 — part of taking the payment |
+| **Hosting (the whole site)** | **~$20/mo** |
+
+Payment processing fees are per-transaction and set by whichever processor is
+used at go-live — a cost of doing business, not a cost of this system.
 
 ---
 
