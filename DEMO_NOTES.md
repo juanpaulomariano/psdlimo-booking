@@ -185,6 +185,42 @@ note in `CLAUDE.md`).
 
 ---
 
+## 5a. Xendit's "Test and save" button returns 400 — this is correct
+
+Pressing **Test and save** on the webhook config sends Xendit's canned sample
+payload, which looks like this:
+
+```json
+{ "id": "579c8d61f23fa4ca35e52da4",
+  "external_id": "invoice_123124123",
+  "status": "PAID", "amount": 50000, "bank_code": "PERMATA" }
+```
+
+Note what is absent: **no `metadata`**. It is a generic sample, not a PSDLimo
+booking. The endpoint responds `400 {"error":"Booking metadata is not valid"}`.
+
+That is the system working:
+
+1. the callback token was **verified** — a 400 rather than a 401 is the proof
+   the token matches, which is the only thing the test button can usefully tell us
+2. the status `PAID` was recognised as actionable
+3. the payload was rejected because there is no booking in it
+4. **400, not 500** — retrying cannot fix a malformed payload, so Xendit is told
+   not to retry
+
+A dummy payload silently creating a CRM record would be the actual bug.
+
+Webhook settings to use:
+
+- ☑ **Invoices paid** → `https://psdlimo-booking.vercel.app/api/xendit-webhook`
+- ☐ *Also notify when an invoice has expired* — leave OFF. Expiry is not an
+  event we act on; see item 6.
+- ☐ *Also notify when a payment has been received after expiry* — leave OFF.
+  It would create a booking for a ride whose pickup time may already have
+  passed. Out of scope, and an untested path.
+
+---
+
 ## 6. Things that look like bugs but are correct
 
 Worth pre-empting, because a client will spot these and ask:
