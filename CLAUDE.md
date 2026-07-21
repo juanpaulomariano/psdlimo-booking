@@ -32,6 +32,14 @@ A Next.js (App Router, TypeScript) booking system deployed to Vercel: live auto-
 - **Metadata limits:** keep the booking payload compact; `special_requests` is user free-text — enforce `maxLength={400}` in the UI AND `.slice(0, 400)` server-side before attaching to the invoice.
 - **Abandoned invoices are not errors.** A customer who closes the Xendit page leaves an invoice that simply expires. No cleanup needed, no CRM record created — that is correct behavior, don't "fix" it.
 - **GHL v2 basics:** base `https://services.leadconnectorhq.com`, headers `Authorization: Bearer ${GHL_PRIVATE_TOKEN}` and `Version: 2021-07-28`. Contact upsert dedupes by email+phone. Opportunity custom fields go on the opportunity, contact fields on the contact — per-booking data NEVER on the contact (repeat bookings would overwrite). Log GHL error response bodies — their errors are only useful in the body.
+- **GHL custom-field values come back under DIFFERENT KEYS per endpoint.** Verified against the live sandbox:
+  - `GET /opportunities/{id}` → `{ id, fieldValue }`
+  - `GET /opportunities/search` → `{ id, type, fieldValueString | fieldValueNumber | fieldValueDate }`
+  - writes always use `field_value` (snake_case)
+  Reading only `fieldValue` makes the idempotency lookup silently never match, so every re-sent callback attempts a duplicate booking. `readFieldValue()` in `lib/ghl.ts` handles every shape — use it.
+- **Opportunity search does not look inside custom fields.** `?q=` matches the opportunity NAME only; searching it for a `payment_ref_id` returns 0 even when the record exists. A `POST /opportunities/search` with a `customFields.*` filter returns 422. The working approach is to scope by `contact_id` (contacts are deduped by email, so a duplicate callback always resolves to the same contact) and match `payment_ref_id` in the returned `customFields`.
+- **GHL enforces its own one-opportunity-per-contact rule** and rejects a second create with `400 "Can not create duplicate opportunity for the contact"`, including `meta.existingId`. That is a SUCCESS signal for us, not a failure — treat it as already-recorded and return 200. Returning 500 would make Xendit retry a callback that has already succeeded, forever. It also covers the race where two callbacks both pass the search before either writes.
+- **GHL DATE fields store a date, not a datetime** — an ISO string with an offset is truncated to `YYYY-MM-DD`. The pickup TIME survives on the opportunity name and description, which is why they carry the formatted LA time.
 
 ## Code style
 - TypeScript strict; zod validation at every API boundary (`lib/booking-schema.ts` is shared by quote, checkout, and webhook — one schema, three consumers).
