@@ -260,6 +260,78 @@ export function verifyCallback(headers: Headers): boolean {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+ * fetchBookingMetadata
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Fetch the booking payload for a paid invoice.
+ *
+ * WHY THIS EXISTS — a real failure, found only by paying with a real card:
+ *
+ * Xendit's invoice callback does NOT include the `metadata` you attached at
+ * creation. The callback carries id / external_id / status / amount and little
+ * else. Reading `metadata` off the callback body yields undefined, so every
+ * field fails validation and the booking never reaches the CRM.
+ *
+ * This was invisible in testing because the test payloads were hand-written
+ * WITH a metadata block — i.e. they tested the assumption rather than Xendit's
+ * actual behaviour. The lesson is in DEMO_NOTES.md: synthesise payloads from
+ * the provider's real output, never from your own expectation of it.
+ *
+ * So: the callback tells us WHICH invoice was paid, and we fetch the booking
+ * from the invoice itself. That is also the more trustworthy order — the
+ * payload now comes from an authenticated API read rather than from the request
+ * body, so it cannot be spoofed even if the callback token ever leaked.
+ */
+export async function fetchBookingMetadata(externalId: string): Promise<Record<string, unknown>> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${XENDIT_API}/v2/invoices?external_id=${encodeURIComponent(externalId)}`,
+      { headers: { Authorization: authHeader() }, cache: "no-store" },
+    );
+  } catch (err) {
+    throw new PaymentError(
+      `Could not reach the payment provider to load invoice ${externalId}: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+      "API_ERROR",
+    );
+  }
+
+  const body = await response.text();
+
+  if (!response.ok) {
+    console.error(`[payments] invoice lookup ${response.status}: ${body}`);
+    throw new PaymentError(`Could not load invoice ${externalId}.`, "API_ERROR", body);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new PaymentError(`Invoice lookup returned unreadable JSON.`, "API_ERROR", body);
+  }
+
+  // Querying by external_id returns an array; be tolerant of a bare object too.
+  const invoice = Array.isArray(parsed) ? parsed[0] : parsed;
+
+  if (!invoice || typeof invoice !== "object") {
+    throw new PaymentError(`No invoice found for ${externalId}.`, "API_ERROR", body);
+  }
+
+  const metadata = (invoice as { metadata?: unknown }).metadata;
+  if (!metadata || typeof metadata !== "object") {
+    throw new PaymentError(
+      `Invoice ${externalId} carries no booking metadata. It was probably not created by ` +
+        `this application — Xendit's own webhook test payload looks like this.`,
+      "API_ERROR",
+    );
+  }
+
+  return metadata as Record<string, unknown>;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
  * parseCallback
  * ══════════════════════════════════════════════════════════════════════════ */
 

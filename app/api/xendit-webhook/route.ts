@@ -25,7 +25,7 @@
 
 import { NextResponse } from "next/server";
 import { bookingMetadataSchema } from "@/lib/booking-schema";
-import { parseCallback, verifyCallback } from "@/lib/payments";
+import { fetchBookingMetadata, parseCallback, verifyCallback } from "@/lib/payments";
 import { GHLError, pushBookingToGHL } from "@/lib/ghl";
 
 export async function POST(request: Request) {
@@ -58,12 +58,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true, acted: false });
   }
 
-  /* ── 3. Validate the booking payload ──────────────────────────────────── */
-  const parsed = bookingMetadataSchema.safeParse(event.metadata);
+  /* ── 3. Load the booking ──────────────────────────────────────────────────
+   * The callback does NOT carry the metadata we attached at invoice creation —
+   * it tells us WHICH invoice was paid, and we read the booking from the
+   * invoice itself. See fetchBookingMetadata() for the full story.
+   *
+   * This is also the safer order: the payload arrives via an authenticated API
+   * read rather than the request body, so it cannot be spoofed.
+   */
+  let rawMetadata: Record<string, unknown>;
+  try {
+    // Prefer metadata on the callback if a future API version starts sending it,
+    // otherwise fetch. Avoids a network round trip if it is already here.
+    rawMetadata =
+      Object.keys(event.metadata).length > 0
+        ? event.metadata
+        : await fetchBookingMetadata(event.externalId);
+  } catch (err) {
+    // A lookup failure is transient (network, provider outage), so 500 and let
+    // the provider retry — the payment succeeded and must not be lost.
+    console.error(`[webhook] could not load booking ${event.externalId}:`, err);
+    return NextResponse.json(
+      { error: "Could not load the booking", reference: event.externalId },
+      { status: 500 },
+    );
+  }
+
+  const parsed = bookingMetadataSchema.safeParse(rawMetadata);
 
   if (!parsed.success) {
     // The invoice metadata IS the booking — there is no database to fall back
     // on. If it is malformed, retrying will not help, so 400 rather than 500.
+    // Xendit's own webhook TEST payload lands here: it is a canned sample with
+    // no booking attached, and rejecting it is correct.
     console.error(
       `[webhook] PAID callback ${event.externalId} has unusable metadata:`,
       JSON.stringify(parsed.error.issues),
