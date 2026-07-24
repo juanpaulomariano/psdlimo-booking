@@ -9,6 +9,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { RatesEditor } from "../components/RatesEditor";
+import { AdminNav } from "../components/AdminNav";
 
 export default async function AdminPage() {
   const session = await getSession();
@@ -25,6 +26,8 @@ export default async function AdminPage() {
           no developer, no waiting. Everything about your customers and their
           bookings lives in your CRM.
         </p>
+
+        <AdminNav current="rates" />
 
         <RatesEditor />
 

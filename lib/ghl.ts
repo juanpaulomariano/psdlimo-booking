@@ -363,50 +363,6 @@ export async function createBookingOpportunity(
   return opportunityId;
 }
 
-/** The tag a detected double booking is marked with. Contact-scoped (GHL tags
- *  live on contacts). A GHL workflow watching for this tag emails the owner. */
-export const DOUBLE_BOOKING_TAG = "ops.double-booking";
-
-/**
- * Flag a detected double booking by TAGGING the contact, not by moving the
- * opportunity's stage.
- *
- * WHY A TAG, NOT A STAGE MOVE (decided 2026-07-24): the pipeline already has a
- * meaningful stage lifecycle (New Inquiry → … → Assigned → In Progress →
- * Completed → Cancelled). Moving a clashing booking to a dedicated stage would
- * DESTROY the record of where it actually was (e.g. "Assigned"), and an
- * opportunity can only occupy one stage. A tag layers the warning ON TOP of the
- * real stage instead — nothing is overwritten, and the booking stays exactly
- * where it belongs.
- *
- * The tag is added to the CONTACT because GHL tags are contact-scoped. A GHL
- * workflow (WF-04) watches for this tag and emails the owner — that is the
- * primary alert; the tag is also the durable, filterable backstop.
- *
- * Resilient: never throws. A tagging failure must not turn a detected clash into
- * a 500 that makes the caller retry (the clash is already logged). Returns
- * whether the tag was applied.
- */
-export async function flagPossibleDoubleBooking(contactId: string): Promise<boolean> {
-  if (!contactId) {
-    console.warn("[ghl] cannot flag a double booking: no contactId on the trip.");
-    return false;
-  }
-  try {
-    await ghlFetch(`/contacts/${contactId}/tags`, {
-      method: "POST",
-      body: { tags: [DOUBLE_BOOKING_TAG] },
-    });
-    console.log(`[ghl] contact ${contactId} tagged "${DOUBLE_BOOKING_TAG}" (possible double booking)`);
-    return true;
-  } catch (err) {
-    console.error(
-      `[ghl] failed to tag contact ${contactId} as a double booking (clash still ` +
-        `detected + logged): ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return false;
-  }
-}
 
 /** Write a single custom field onto an existing opportunity (e.g. appointment_id). */
 export async function updateOpportunityField(
@@ -419,6 +375,62 @@ export async function updateOpportunityField(
     method: "PUT",
     body: { customFields: [{ id: fieldId, field_value: value }] },
   });
+}
+
+/**
+ * ONE-WAY SYNC: reflect a driver assignment (made in the website admin) onto the
+ * GHL opportunity, so the owner still SEES it in their cockpit — the source of
+ * truth and the protection live in the admin, GHL just mirrors the result.
+ *
+ * Writes the driver name to the `Chauffeur Assigned` field and moves the
+ * opportunity to the `Assigned` stage (both ids from config/ghl-fields.json).
+ * Passing an EMPTY driverName clears the field and returns the opportunity to
+ * `Confirmed` — used when the admin un-assigns.
+ *
+ * NEVER THROWS. The admin assignment already succeeded and is the real record;
+ * a GHL hiccup must not fail the whole action or leave the DB and GHL disagreeing
+ * in a way that blocks the owner. It logs and returns whether the sync landed.
+ */
+export async function syncDriverAssignmentToGHL(
+  opportunityId: string,
+  driverName: string,
+): Promise<boolean> {
+  if (!opportunityId) return false;
+
+  const cfg = fieldConfig as {
+    opportunity: { chauffeur_assigned?: string };
+    stageAssignedId?: string;
+    stageConfirmedId?: string;
+  };
+  const fieldId = cfg.opportunity.chauffeur_assigned;
+  const assigned = Boolean(driverName.trim());
+  const targetStageId = assigned ? cfg.stageAssignedId : cfg.stageConfirmedId;
+
+  const body: Record<string, unknown> = {};
+  if (fieldId) body.customFields = [{ id: fieldId, field_value: driverName }];
+  if (targetStageId) body.pipelineStageId = targetStageId;
+  if (Object.keys(body).length === 0) {
+    console.warn(
+      `[ghl] cannot sync driver assignment for ${opportunityId}: no chauffeur field ` +
+        `or stage id in config. Run npm run ghl:ids.`,
+    );
+    return false;
+  }
+
+  try {
+    await ghlFetch(`/opportunities/${opportunityId}`, { method: "PUT", body });
+    console.log(
+      `[ghl] synced driver "${driverName || "(cleared)"}" to opportunity ${opportunityId}` +
+        `${targetStageId ? ` → stage ${assigned ? "Assigned" : "Confirmed"}` : ""}`,
+    );
+    return true;
+  } catch (err) {
+    console.error(
+      `[ghl] driver-assignment sync failed for ${opportunityId} (admin record is ` +
+        `authoritative): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
 }
 
 /**

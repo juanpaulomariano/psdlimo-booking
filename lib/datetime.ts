@@ -114,6 +114,34 @@ export function laToday(now: Date = new Date()): string {
 }
 
 /**
+ * The San Francisco CALENDAR DAY of an instant, as "YYYY-MM-DD".
+ *
+ * This is the unit the one-driver-one-trip-per-day rule keys on. It MUST be the
+ * LA day, not the UTC day: a 9:00 PM PDT pickup is "2026-07-30" locally but
+ * "2026-07-31" in UTC, and grouping by the wrong day would let a driver be
+ * double-booked across the date line (or wrongly block a legitimate next-day
+ * ride). Accepts any offset-carrying ISO string.
+ */
+export function laDayOf(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
+/** Human label for an LA calendar day, e.g. "Jul 30, 2026". For block messages. */
+export function formatLADay(iso: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIMEZONE,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(iso));
+}
+
+/**
  * Is this pickup far enough in the future? Enforced in the UI for feedback and
  * again at the API boundary, because the UI check is trivially bypassed.
  */
