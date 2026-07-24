@@ -12,10 +12,13 @@
     "test:payments": "tsx --conditions=react-server scripts/test-payments.ts",
     "test": "npm run test:pricing && npm run test:payments",
     "db:migrate": "tsx --env-file=.env.local scripts/db-migrate.ts",
-    "db:seed": "tsx --env-file=.env.local scripts/db-seed.ts"
+    "db:seed": "tsx --env-file=.env.local scripts/db-seed.ts",
+    "admin:password": "tsx --conditions=react-server --env-file=.env.local scripts/set-admin-password.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.4",
     "nanoid": "^6.0.0",
     "next": "16.2.10",
     "react": "19.2.4",
@@ -26,6 +29,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
