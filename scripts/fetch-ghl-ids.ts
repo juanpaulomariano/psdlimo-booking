@@ -70,6 +70,20 @@ const PIPELINE_NAME = "PSDLimo Bookings";
 const STAGE_NAME = "Confirmed";
 
 /**
+ * Additional pipeline stages the Stage A′ workflows use. Unlike `Confirmed`
+ * (required — the webhook writes bookings straight into it), these are resolved
+ * as WARNINGS: they are created during the GHL workflow setup, so the resolver
+ * must not hard-fail before they exist. Once created, their ids flow into
+ * config/ghl-fields.json and the code that references them activates.
+ *   - Possible Double Booking: where a detected clash is flagged (lib/ghl.ts)
+ *   - Completed: where WF-05 moves a finished ride
+ */
+const OPTIONAL_STAGES: Record<string, string> = {
+  stagePossibleDoubleBookingId: "Possible Double Booking",
+  stageCompletedId: "Completed",
+};
+
+/**
  * Tags. NOTE THE DOT NOTATION — the sandbox uses `source.website`, not
  * `source-website` as ARCHITECTURE.md originally specified. The CRM is the
  * source of truth for tag names, so the code matches the CRM.
@@ -242,6 +256,8 @@ async function main() {
 
   let pipelineId = "";
   let stageConfirmedId = "";
+  // key → resolved id for the Stage A′ stages; empty string until they exist.
+  const optionalStageIds: Record<string, string> = {};
 
   if (!pipeline) {
     problems.push(
@@ -250,16 +266,34 @@ async function main() {
     );
   } else {
     pipelineId = pipeline.id;
-    const stage = (pipeline.stages ?? []).find(
-      (s) => s.name.trim().toLowerCase() === STAGE_NAME.toLowerCase(),
-    );
+    const stages = pipeline.stages ?? [];
+    const findStage = (name: string) =>
+      stages.find((s) => s.name.trim().toLowerCase() === name.toLowerCase());
+
+    const stage = findStage(STAGE_NAME);
     if (!stage) {
       problems.push(
         `Pipeline "${PIPELINE_NAME}" has no "${STAGE_NAME}" stage.\n` +
-          `      Its stages: ${(pipeline.stages ?? []).map((s) => `"${s.name}"`).join(", ")}`,
+          `      Its stages: ${stages.map((s) => `"${s.name}"`).join(", ")}`,
       );
     } else {
       stageConfirmedId = stage.id;
+    }
+
+    // Stage A′ stages — resolved if present, WARNED if not (they are created
+    // during the GHL workflow setup, so their absence is expected pre-setup).
+    for (const [key, stageName] of Object.entries(OPTIONAL_STAGES)) {
+      const found = findStage(stageName);
+      if (found) {
+        optionalStageIds[key] = found.id;
+      } else {
+        optionalStageIds[key] = "";
+        warnings.push(
+          `Pipeline "${PIPELINE_NAME}" has no "${stageName}" stage yet — ${key} left blank.\n` +
+            `      Create it (GHL_WORKFLOWS_SETUP.md S1/S2) and re-run to activate the\n` +
+            `      workflow that keys off it. Not fatal: the code no-ops until the id exists.`,
+        );
+      }
     }
   }
 
@@ -316,6 +350,7 @@ async function main() {
     locationId,
     pipelineId,
     stageConfirmedId,
+    ...optionalStageIds,
     calendarId,
     tags: {
       source: "source.website",
