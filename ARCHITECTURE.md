@@ -38,8 +38,8 @@ where it belongs.
 | Database | **Neon Postgres** (Free for demo → Launch for prod, ~$0–1/mo) | PSD Limo (their business email) |
 | Auth | bcrypt + jose (signed-JWT session), NOT a heavy library | — |
 | Distance & addresses | Google Routes API `computeRouteMatrix` · Places (New) · Static Maps (display only) | PSD Limo |
-| Payments (demo) | Xendit Invoice API, test mode, PHP | — |
-| Payments (go-live) | Client-owned US processor (Stripe US); swap isolated to `lib/payments.ts` | PSD Limo |
+| Payments | Xendit Invoice API, test mode, PHP | — |
+| Payments (future, IF the client asks) | A client-owned US processor for USD settlement; the swap is isolated to `lib/payments.ts` and NOT scheduled — see §12a | PSD Limo |
 | CRM & comms | GoHighLevel sub-account | PSD Limo |
 | Glue | NONE — the site's own webhook writes to GHL REST (no n8n) | — |
 
@@ -211,8 +211,21 @@ be stubbed or hidden until then.
 ## 12. Cost (verified, for the proposal — no placeholders)
 Neon **~$0–1/mo** (Launch, usage-based, no fixed fee) · Google Maps **$0** (~3% of
 free tier) · Vercel Pro **~$20/mo** (only fixed cost; Hobby is non-commercial) ·
-GHL existing subscription · Stripe per-transaction · SMS/A2P at go-live (needs
-client EIN). The DB + auth + admin backbone adds ~$0–1/mo.
+GHL existing subscription · payment processor per-transaction · SMS/A2P at go-live
+(needs client EIN). The DB + auth + admin backbone adds ~$0–1/mo.
+
+## 12a. Payments — Xendit stays (decided 2026-07-24)
+The system runs on **Xendit** (Invoice API, test mode, PHP), and it STAYS there for
+now. A swap to a US processor is **NOT scheduled** — we have no access to a US
+payment method to build or test against, so introducing one would be untestable
+guesswork. This is a deliberate hold, not an oversight.
+
+The architecture already makes this cost-free to defer: every line of Xendit code
+lives in `lib/payments.ts` behind a neutral vocabulary (`createInvoice` /
+`verifyCallback` / `parseCallback`), so IF the client later wants funds to settle
+to a US account, the swap touches that ONE file and nothing else. Until they ask —
+and until a US method exists to test with — Xendit is the payment processor,
+full stop.
 
 ## 13. Build status & what's next
 See `ROADMAP.md` for the staged plan. Current position:
@@ -223,8 +236,9 @@ See `ROADMAP.md` for the staged plan. Current position:
 - ✅ Dispatch (Stage E): silent trip DB · driver/vehicle double-booking detection ·
   `/api/dispatch/assign` webhook · GHL flag-stage hook (stage created in Stage A')
 - ⏭ Zones · legal pages (pending demo discussion) · GHL finalize + the "Possible
-  Double Booking" stage + workflows (Stage A') · reporting · payment swap ·
-  hardening/handover
+  Double Booking" stage + workflows (Stage A') · reporting · hardening/handover
+- ⏸ Payment swap — ON HOLD, not scheduled (no US payment method to build/test
+  against; Xendit stays). Isolated to `lib/payments.ts` if ever needed. See §12a.
 
 ## 14. Out of scope (say it before the client assumes it)
 Marketing site/content · AI receptionist · extra lead channels · full driver
