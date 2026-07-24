@@ -170,10 +170,20 @@ Quoted, Confirmed, Assigned, In Progress, Completed, Cancelled.
   portal are a FUTURE phase.
 
 ## 11. Cancellation (customer-facing)
-A "Request Cancellation" button opens a contact popup — Email / WhatsApp / Call —
-that redirects (`mailto:` / `wa.me` / `tel:`). NOT an automated cancellation and
-NOT a new stage: cancellation touches refunds and belongs in a human conversation.
-Contact details come from editable settings.
+A "Request Cancellation" button opens a contact popup — Email / WhatsApp / Call.
+The email address is copyable (a Copy button, since desktop `mailto:` often has no
+registered handler) with `mailto:` / `tel:` still offered for devices that have
+one; WhatsApp renders disabled until a number exists. NOT an automated cancellation
+and NOT a new stage: cancellation touches refunds and belongs in a human
+conversation. Contact details come from editable settings.
+
+**Legal pages (Privacy · Terms · Cancellation Policy) — DEFERRED (decided
+2026-07-24).** Intentionally not written yet. The actual terms — refund windows,
+cancellation cut-offs, data handling — are the client's business decisions and
+possibly a lawyer's, not ours to invent. We will discuss what goes in them WITH
+the client during the demo, then add the pages with their confirmed wording (and a
+"template text, not legal advice — review before go-live" note). Footer links can
+be stubbed or hidden until then.
 
 ## 12. Cost (verified, for the proposal — no placeholders)
 Neon **~$0–1/mo** (Launch, usage-based, no fixed fee) · Google Maps **$0** (~3% of
@@ -186,8 +196,9 @@ See `ROADMAP.md` for the staged plan. Current position:
 - ✅ Booking, payments, webhook→GHL, appointments (Phases 0–8)
 - ✅ Neon DB + owner-editable rates (with fallback)
 - ✅ Hardened auth + role-aware top bar + guarded admin rates editor
-- ⏭ Zones · webhook DB-first rewrite · round-trip · dispatch · GHL finalize +
-  workflows · reporting · payment swap · hardening/handover
+- ✅ Round-trip booking · Request-Cancellation contact popup
+- ⏭ Zones · legal pages (pending demo discussion) · webhook DB-first rewrite ·
+  dispatch · GHL finalize + workflows · reporting · payment swap · hardening/handover
 
 ## 14. Out of scope (say it before the client assumes it)
 Marketing site/content · AI receptionist · extra lead channels · full driver
