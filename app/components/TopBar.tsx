@@ -14,13 +14,11 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 type SessionUser = { name: string; email: string; role: "user" | "admin" } | null;
 
 export function TopBar({ session }: { session: SessionUser }) {
-  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -35,9 +33,11 @@ export function TopBar({ session }: { session: SessionUser }) {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     setMenuOpen(false);
-    // Refresh so the server re-reads the (now absent) session and the bar updates.
-    router.refresh();
-    router.push("/");
+    // FULL navigation, not router.refresh(): the top bar lives in the ROOT
+    // LAYOUT, which a soft refresh() does not reliably re-render — the page
+    // updated but the bar stayed stale (the logout bug). A hard load re-reads
+    // the session everywhere, exactly as the login flow does. Consistent.
+    window.location.href = "/";
   }
 
   const initials = session
