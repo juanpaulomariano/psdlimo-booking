@@ -17,6 +17,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { checkoutRequestSchema, type BookingMetadata } from "@/lib/booking-schema";
 import { calculatePrice } from "@/lib/pricing";
+import { getRateCard } from "@/lib/rates-source";
 import { RoutingError, getDrivingRoute } from "@/lib/maps";
 import { PaymentError, createInvoice } from "@/lib/payments";
 import {
@@ -77,7 +78,10 @@ export async function POST(request: Request) {
   // ── Price ────────────────────────────────────────────────────────────────
   let breakdown: ReturnType<typeof calculatePrice>;
   try {
-    breakdown = calculatePrice(ride, distanceMiles);
+    // Same DB-backed rate card the quote used — recomputed server-side at payment
+    // time. The owner's current rates are the ones charged.
+    const rateCard = await getRateCard();
+    breakdown = calculatePrice(ride, distanceMiles, rateCard);
   } catch (err) {
     console.error("[checkout] pricing failed:", err);
     return NextResponse.json({ error: "Could not price that ride." }, { status: 500 });

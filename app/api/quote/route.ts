@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { quoteRequestSchema } from "@/lib/booking-schema";
 import { calculatePrice } from "@/lib/pricing";
+import { getRateCard } from "@/lib/rates-source";
 import { RoutingError, getDrivingRoute } from "@/lib/maps";
 import { MIN_LEAD_TIME_HOURS, getFlatRoute } from "@/config/rates";
 import { meetsLeadTime } from "@/lib/datetime";
@@ -88,7 +89,10 @@ export async function POST(request: Request) {
   // ── Price ────────────────────────────────────────────────────────────────
   let breakdown: ReturnType<typeof calculatePrice>;
   try {
-    breakdown = calculatePrice(ride, distanceMiles);
+    // Rates from the DB (owner-editable), with last-good/code fallback so a DB
+    // hiccup never breaks a quote.
+    const rateCard = await getRateCard();
+    breakdown = calculatePrice(ride, distanceMiles, rateCard);
   } catch (err) {
     console.error("[quote] pricing failed:", err);
     return NextResponse.json({ error: "Could not price that ride." }, { status: 500 });

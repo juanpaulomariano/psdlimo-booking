@@ -11,17 +11,11 @@
 
 import {
   ADD_ONS,
-  BASE_FARE,
+  CODE_RATE_CARD,
   CURRENCY,
-  MINIMUM_FARE,
-  MIN_HOURS,
-  PER_HOUR,
-  PER_MILE,
-  SERVICE_FEE_PCT,
-  getAddOn,
   getFlatRoute,
-  getVehicleClass,
   type AddOnId,
+  type RateCard,
 } from "@/config/rates";
 import type { RideDetails } from "@/lib/booking-schema";
 
@@ -62,8 +56,16 @@ function round2(n: number): number {
  *   `rideType: "distance"`; ignored for hourly and flat rides. Passing null for
  *   a distance ride throws — a silent $0 mileage charge would be a pricing bug
  *   that reaches a real invoice.
+ * @param rateCard The editable pricing numbers. Defaults to CODE_RATE_CARD (the
+ *   config/rates.ts constants), so callers that pass nothing get identical
+ *   behaviour. /api/quote and /api/checkout pass the DB-backed card so the owner
+ *   can adjust rates. The engine stays PURE — the card is data passed in.
  */
-export function calculatePrice(ride: RideDetails, distanceMiles: number | null): PriceBreakdown {
+export function calculatePrice(
+  ride: RideDetails,
+  distanceMiles: number | null,
+  rateCard: RateCard = CODE_RATE_CARD,
+): PriceBreakdown {
   const lines: PriceLine[] = [];
   let usedDistance: number | null = null;
 
@@ -79,25 +81,25 @@ export function calculatePrice(ride: RideDetails, distanceMiles: number | null):
         );
       }
       usedDistance = round2(distanceMiles);
-      const distanceCharge = round2(usedDistance * PER_MILE);
-      lines.push({ key: "base", label: "Base fare", amount: BASE_FARE });
+      const distanceCharge = round2(usedDistance * rateCard.perMile);
+      lines.push({ key: "base", label: "Base fare", amount: rateCard.baseFare });
       lines.push({
         key: "distance",
-        label: `Distance (${usedDistance.toFixed(1)} mi × $${PER_MILE.toFixed(2)})`,
+        label: `Distance (${usedDistance.toFixed(1)} mi × $${rateCard.perMile.toFixed(2)})`,
         amount: distanceCharge,
       });
-      fareBasis = BASE_FARE + distanceCharge;
+      fareBasis = rateCard.baseFare + distanceCharge;
       break;
     }
 
     case "hourly": {
       // Schema enforces the minimum; clamping here too keeps the engine correct
       // in isolation, since it is called from more than one route.
-      const hours = Math.max(ride.hours, MIN_HOURS);
-      const hourlyCharge = round2(hours * PER_HOUR);
+      const hours = Math.max(ride.hours, rateCard.minHours);
+      const hourlyCharge = round2(hours * rateCard.perHour);
       lines.push({
         key: "hourly",
-        label: `Hourly (${hours} hr${hours === 1 ? "" : "s"} × $${PER_HOUR.toFixed(2)})`,
+        label: `Hourly (${hours} hr${hours === 1 ? "" : "s"} × $${rateCard.perHour.toFixed(2)})`,
         amount: hourlyCharge,
       });
       fareBasis = hourlyCharge;
@@ -105,6 +107,7 @@ export function calculatePrice(ride: RideDetails, distanceMiles: number | null):
     }
 
     case "flat": {
+      // Flat-route prices are not yet DB-editable (a later slice); still from config.
       const route = getFlatRoute(ride.flatRouteId);
       lines.push({ key: "flat", label: `Flat route — ${route.label}`, amount: route.price });
       fareBasis = route.price;
@@ -114,7 +117,10 @@ export function calculatePrice(ride: RideDetails, distanceMiles: number | null):
 
   // ── 2. Vehicle class multiplier ───────────────────────────────────────────
   // ASSUMPTION (config/rates.ts PRICING_ASSUMPTIONS): applies to flat routes too.
-  const vehicle = getVehicleClass(ride.vehicleClass);
+  const vehicle = rateCard.vehicleMultipliers[ride.vehicleClass];
+  if (!vehicle) {
+    throw new Error(`calculatePrice: no rate-card entry for vehicle class "${ride.vehicleClass}".`);
+  }
   const afterVehicle = round2(fareBasis * vehicle.multiplier);
   const vehicleAdjustment = round2(afterVehicle - fareBasis);
 
@@ -132,20 +138,21 @@ export function calculatePrice(ride: RideDetails, distanceMiles: number | null):
   let addOnTotal = 0;
   for (const addOn of ADD_ONS) {
     if (ride.addOns.includes(addOn.id as AddOnId)) {
-      const { label, price } = getAddOn(addOn.id);
-      lines.push({ key: `addon-${addOn.id}`, label, amount: price });
-      addOnTotal += price;
+      const priced = rateCard.addOnPrices[addOn.id];
+      if (!priced) continue; // add-on not in the card (e.g. newly removed) — skip
+      lines.push({ key: `addon-${addOn.id}`, label: priced.label, amount: priced.price });
+      addOnTotal += priced.price;
     }
   }
 
   // ── 4. Service & fees ─────────────────────────────────────────────────────
   const subtotal = round2(afterVehicle + addOnTotal);
-  const serviceFee = round2(subtotal * SERVICE_FEE_PCT);
+  const serviceFee = round2(subtotal * rateCard.serviceFeePct);
 
   // ── 5. Minimum fare floor, then round to whole USD ────────────────────────
   const beforeMinimum = round2(subtotal + serviceFee);
-  const minimumApplied = beforeMinimum < MINIMUM_FARE;
-  const total = Math.round(Math.max(beforeMinimum, MINIMUM_FARE));
+  const minimumApplied = beforeMinimum < rateCard.minimumFare;
+  const total = Math.round(Math.max(beforeMinimum, rateCard.minimumFare));
 
   return {
     lines,

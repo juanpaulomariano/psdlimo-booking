@@ -180,6 +180,45 @@ export const PRICING_ASSUMPTIONS = [
   "Gratuity is not collected at booking.",
 ] as const;
 
+/* ── RateCard — the pricing engine's editable inputs ────────────────────────
+ * The engine reads its numbers from a RateCard passed IN by the caller, not
+ * from the module constants directly. That keeps the engine a pure function
+ * while letting the numbers come from the DB (owner-editable) at runtime.
+ *
+ * CODE_RATE_CARD below is built from the constants above, so:
+ *   · every existing caller and test that passes no card gets IDENTICAL behaviour
+ *   · the DB is seeded FROM these same values, so DB rates start identical too
+ * The single source of truth for the DEFAULT numbers is still config/rates.ts;
+ * the DB is an editable overlay that starts as an exact copy.
+ */
+export type RateCard = {
+  baseFare: number;
+  perMile: number;
+  perHour: number;
+  minHours: number;
+  serviceFeePct: number;
+  minimumFare: number;
+  /** id → { label, multiplier } for vehicle classes. */
+  vehicleMultipliers: Record<string, { label: string; multiplier: number }>;
+  /** id → { label, price } for add-ons. */
+  addOnPrices: Record<string, { label: string; price: number }>;
+};
+
+/** The default rate card, built from the code constants. Behaviour with this is
+ *  identical to the pre-RateCard engine. */
+export const CODE_RATE_CARD: RateCard = {
+  baseFare: BASE_FARE,
+  perMile: PER_MILE,
+  perHour: PER_HOUR,
+  minHours: MIN_HOURS,
+  serviceFeePct: SERVICE_FEE_PCT,
+  minimumFare: MINIMUM_FARE,
+  vehicleMultipliers: Object.fromEntries(
+    VEHICLE_CLASSES.map((v) => [v.id, { label: v.label, multiplier: v.multiplier }]),
+  ),
+  addOnPrices: Object.fromEntries(ADD_ONS.map((a) => [a.id, { label: a.label, price: a.price }])),
+};
+
 /* ── Booking tag derivation ─────────────────────────────────────────────────
  * A ride's CRM tags are derived from its SHAPE — where it goes, how big, how
  * long, whether a company is named. Never from anything the customer is asked to
