@@ -194,3 +194,11 @@ Marketing site/content · AI receptionist · extra lead channels · full driver
 portal + real-time statuses · offline-first PWA · native app · commission
 reporting · driver document-expiry alerts · feeder ingestion. Named as future
 phases in the proposal, not built now.
+
+**Zones — DEFERRED (decided 2026-07-24).** The demo already shows editable rates +
+vehicle multipliers + add-ons. Zone-based pricing is deferred until the client
+confirms HOW they actually price by area (surcharge-on-distance vs zone-to-zone
+matrix vs editable fixed routes — the design differs a lot per model). The DB and
+admin are built to accept a `zone` concept later without rework. Currently the
+system supports distance, hourly, and fixed flat routes — which covers the common
+cases.
