@@ -7,12 +7,10 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PrimaryButton, TextField } from "./ui";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
-  const router = useRouter();
   const isRegister = mode === "register";
 
   const [name, setName] = useState("");
