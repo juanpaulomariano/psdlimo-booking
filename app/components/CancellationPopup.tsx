@@ -12,7 +12,7 @@
  * No backend, no database — pure redirects. See ARCHITECTURE.md §11.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { BUSINESS_CONTACT } from "@/config/contact";
 
 export function CancellationPopup({
@@ -22,6 +22,8 @@ export function CancellationPopup({
   bookingRef?: string;
   onClose: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
   // Close on Escape.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -30,6 +32,16 @@ export function CancellationPopup({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  async function copyEmail() {
+    try {
+      await navigator.clipboard.writeText(BUSINESS_CONTACT.supportEmail);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (rare) — the address is visible to copy manually anyway.
+    }
+  }
 
   const subject = encodeURIComponent(
     bookingRef ? `Cancellation request — booking ${bookingRef}` : "Cancellation request",
@@ -79,20 +91,41 @@ export function CancellationPopup({
         </div>
 
         <div className="mt-5 space-y-2.5">
-          {/* Email — mailto */}
-          <a
-            href={mailto}
-            onClick={onClose}
-            className="border-ink-600 hover:border-brass-400 hover:bg-brass-400/5 flex items-center gap-3.5 rounded-sm border px-4 py-3 transition-colors"
-          >
-            <ContactIcon kind="email" />
-            <span>
-              <span className="text-paper-100 block text-sm">Email us</span>
-              <span className="text-paper-500 block text-xs">{BUSINESS_CONTACT.supportEmail}</span>
-            </span>
-          </a>
+          {/* Email — Copy always works; "Open mail app" is a mailto for devices
+              that have one. mailto alone is unreliable on desktop (no handler),
+              so the copyable address is the primary path. */}
+          <div className="border-ink-600 rounded-sm border px-4 py-3">
+            <div className="flex items-center gap-3.5">
+              <ContactIcon kind="email" />
+              <div className="min-w-0 flex-1">
+                <span className="text-paper-100 block text-sm">Email us</span>
+                <span className="text-paper-300 block truncate text-xs">
+                  {BUSINESS_CONTACT.supportEmail}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={copyEmail}
+                className={`shrink-0 rounded-sm border px-2.5 py-1 text-xs transition-colors ${
+                  copied
+                    ? "border-brass-400 text-brass-400"
+                    : "border-ink-500 text-paper-300 hover:border-brass-400 hover:text-brass-400"
+                }`}
+              >
+                {copied ? "Copied ✓" : "Copy"}
+              </button>
+            </div>
+            <a
+              href={mailto}
+              onClick={onClose}
+              className="text-paper-500 hover:text-brass-400 mt-2 ml-[3.25rem] block text-xs underline underline-offset-2 transition-colors"
+            >
+              or open your mail app
+            </a>
+          </div>
 
-          {/* Call — tel */}
+          {/* Call — tel works on mobile; on desktop the number is shown to dial
+              manually. */}
           <a
             href={tel}
             onClick={onClose}
@@ -101,8 +134,9 @@ export function CancellationPopup({
             <ContactIcon kind="phone" />
             <span>
               <span className="text-paper-100 block text-sm">Call us</span>
-              <span className="text-paper-500 block text-xs">{BUSINESS_CONTACT.supportPhone}</span>
+              <span className="text-paper-300 block text-xs">{BUSINESS_CONTACT.supportPhone}</span>
             </span>
+            <span className="text-paper-500 ml-auto text-xs">Tap to call</span>
           </a>
 
           {/* WhatsApp — disabled until a number is provisioned */}
