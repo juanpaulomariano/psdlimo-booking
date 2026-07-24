@@ -165,6 +165,37 @@ rates/settings admin (behind the role-gated login) + the customer booking page.
 **The role-gated "Admin Dashboard" button** now leads to the rates/settings editor
 (the one owner screen), NOT a big operational dashboard. Simpler and on-message.
 
+## H. DOUBLE-BOOKING FLAG + CANCELLATION (decided 2026-07-24)
+
+### Double-booking: email AND a pipeline stage (belt + suspenders)
+An email can be missed; a stage is a persistent flag in the cockpit the owner
+already scans. So on a detected clash the website tells GHL to do BOTH:
+1. Email the owner ("⚠ possible double-booking: {driver}, {time}, clashes with {other trip}").
+2. Move the JUST-ASSIGNED opportunity to a new **"Possible Double Booking"** stage.
+- Only the LATEST booking flags (the action to review); the email names the clash.
+- Resolution is HUMAN: owner calls to confirm which booking is real, then drags the
+  card back. No auto-message to the customer (an internal dispatch clash is not the
+  customer's business).
+- New GHL stage needed: **Possible Double Booking** (operational holding stage, no
+  customer comms). Added at the GHL-finalize step.
+
+### Request Cancellation — a CONTACT popup, not an automated flow (owner's design)
+A "Request Cancellation" button on the customer's side opens a small popup offering
+**Email / WhatsApp / Call**, then redirects:
+- Email → `mailto:` the business address
+- WhatsApp → `https://wa.me/<number>`
+- Call → `tel:<number>`
+Business contact details come from the editable settings (owner-controlled).
+Why this design (owner's call, and it's the right one):
+- Cancellation touches REFUNDS — a human should handle it via a real conversation,
+  not an automated flow. Correct for a luxury service and anything touching money.
+- Pure redirects (mailto/wa.me/tel) — no backend, no DB, near-zero risk.
+- Fits guest booking (no login needed). Satisfies the contract's cancellation
+  requirement by giving a clear immediate path to request one.
+- NOT an automated cancellation, NOT a new GHL stage — just a contact popup.
+- Where the button appears: on /success after booking, and (later) in the
+  confirmation email. TIMING: later slice, after the core DB + rates admin.
+
 ## F. THE ONE RISK TO WATCH (honest)
 Auth is the single new muscle (flagged in the capability audit). The mitigations
 hold: use Auth.js (never hand-roll), keep to two roles, JWT sessions, and — the
