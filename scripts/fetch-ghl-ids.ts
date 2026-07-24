@@ -46,6 +46,10 @@ const OPPORTUNITY_FIELDS: Record<string, { expectedOptions?: readonly string[] }
   // The idempotency key. Without it a re-sent callback creates a duplicate
   // booking — the exact failure this build is meant to prove impossible.
   payment_ref_id: {},
+  // Phase 8: operations fields.
+  chauffeur_assigned: {}, // owner-written; the one manual field
+  chauffeur_phone: {},
+  appointment_id: {}, // webhook-written; appointment retry-safety
 };
 
 /** Contact fields describe the PERSON, so overwriting on a repeat booking is fine. */
@@ -54,7 +58,11 @@ const CONTACT_FIELDS: Record<string, { expectedOptions?: readonly string[] }> = 
   preferred_vehicle: { expectedOptions: VEHICLE_CLASS_IDS },
   lifetime_rides: {},
   last_ride_date: {},
+  company_name: {}, // Phase 8: corporate booking identification
 };
+
+/** Calendar the webhook writes ride appointments to (Phase 8). */
+const CALENDAR_NAME = "PSDLimo Rides";
 
 const PIPELINE_NAME = "PSDLimo Bookings";
 const STAGE_NAME = "Confirmed";
@@ -68,9 +76,14 @@ const REQUIRED_TAGS = [
   "source.website",
   "service.airport",
   "service.hourly",
+  "service.intercity",
+  "service.winetour",
+  "service.group",
+  "service.corporate",
   "service.pointtopoint",
   "pay.card",
   "pay.paid",
+  "client.corporate",
 ] as const;
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
@@ -264,6 +277,28 @@ async function main() {
     );
   }
 
+  // ── Calendar ──────────────────────────────────────────────────────────────
+  // A WARNING not a failure: the webhook skips the appointment gracefully when
+  // no calendar is configured, so the site works without it. But the ride
+  // lifecycle workflows anchor on appointments, so it IS needed before Phase 9.
+  const calendarResponse = (await ghl(`/calendars/?locationId=${locationId}`, token)) as {
+    calendars?: Array<{ id: string; name: string }>;
+  };
+  const calendar = (calendarResponse.calendars ?? []).find(
+    (c) => c.name.trim().toLowerCase() === CALENDAR_NAME.toLowerCase(),
+  );
+  let calendarId = "";
+  if (calendar) {
+    calendarId = calendar.id;
+  } else {
+    warnings.push(
+      `Calendar "${CALENDAR_NAME}" not found — appointments will be SKIPPED until it exists.\n` +
+        `      Create it (Calendars → Create) and re-run. Required before the ride\n` +
+        `      lifecycle workflows, which anchor their timing on appointments.\n` +
+        `      Existing calendars: ${(calendarResponse.calendars ?? []).map((c) => `"${c.name}"`).join(", ") || "(none)"}`,
+    );
+  }
+
   // ── Report ──────────────────────────────────────────────────────────────
   if (problems.length > 0) {
     console.error(`\n✖ ${problems.length} problem(s) found:\n`);
@@ -279,13 +314,19 @@ async function main() {
     locationId,
     pipelineId,
     stageConfirmedId,
+    calendarId,
     tags: {
       source: "source.website",
       payCard: "pay.card",
       payPaid: "pay.paid",
       serviceAirport: "service.airport",
       serviceHourly: "service.hourly",
+      serviceIntercity: "service.intercity",
+      serviceWinetour: "service.winetour",
+      serviceGroup: "service.group",
+      serviceCorporate: "service.corporate",
       servicePointToPoint: "service.pointtopoint",
+      clientCorporate: "client.corporate",
     },
     opportunity,
     contact,

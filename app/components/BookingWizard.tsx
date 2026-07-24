@@ -70,6 +70,7 @@ export function BookingWizard() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [flightNumber, setFlightNumber] = useState("");
+  const [company, setCompany] = useState("");
   const [specialRequests, setSpecialRequests] = useState("");
 
   // ── Quote ─────────────────────────────────────────────────────────────────
@@ -246,6 +247,7 @@ export function BookingWizard() {
             email: email.trim(),
             phone: phone.trim(),
             flightNumber: isAirportRide ? flightNumber.trim() : "",
+            company: company.trim(),
             specialRequests: specialRequests.trim(),
           },
           paymentMethod: "card",
@@ -533,6 +535,15 @@ export function BookingWizard() {
                 hint="We track your flight and adjust for delays."
               />
             )}
+
+            <TextField
+              label="Company (optional)"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              placeholder="For corporate receipts"
+              maxLength={120}
+              hint="Only if you'd like the receipt addressed to a company."
+            />
 
             <TextArea
               label="Special requests"

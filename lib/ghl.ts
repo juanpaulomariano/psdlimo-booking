@@ -23,7 +23,7 @@
 import "server-only";
 import fieldConfig from "@/config/ghl-fields.json";
 import type { BookingMetadata } from "@/lib/booking-schema";
-import { formatPickupShort } from "@/lib/datetime";
+import { addMinutesISO, formatPickupShort } from "@/lib/datetime";
 import { getVehicleClass } from "@/config/rates";
 
 const GHL_API = "https://services.leadconnectorhq.com";
@@ -144,6 +144,9 @@ export type UpsertContactInput = {
   tags: string[];
   /** Contact-level only: attributes of the PERSON, safe to overwrite. */
   preferredVehicle?: string;
+  /** Optional; written only when non-empty so a later personal booking by the
+   *  same person does not blank an earlier company. */
+  company?: string;
 };
 
 /**
@@ -161,6 +164,9 @@ export async function upsertContact(input: UpsertContactInput): Promise<string> 
   const customFields = compact([
     field(fieldConfig.contact.preferred_vehicle, input.preferredVehicle),
     field(fieldConfig.contact.last_ride_date, toGHLDate(new Date().toISOString())),
+    // company_name is optional in ghl-fields.json until the field is created;
+    // field() no-ops on a missing id, so this is safe before Phase 8.7 lands.
+    field(fieldConfig.contact.company_name, input.company),
   ]);
 
   const response = (await ghlFetch("/contacts/upsert", {
@@ -352,26 +358,138 @@ export async function createBookingOpportunity(
   return opportunityId;
 }
 
+/** Write a single custom field onto an existing opportunity (e.g. appointment_id). */
+export async function updateOpportunityField(
+  opportunityId: string,
+  fieldId: string | undefined,
+  value: string,
+): Promise<void> {
+  if (!fieldId || !value) return;
+  await ghlFetch(`/opportunities/${opportunityId}`, {
+    method: "PUT",
+    body: { customFields: [{ id: fieldId, field_value: value }] },
+  });
+}
+
+/**
+ * Read one custom-field value off an opportunity by id (any endpoint shape).
+ * Used for appointment retry-safety: has this opportunity already got an
+ * appointment_id before we try to create another?
+ */
+export async function readOpportunityField(
+  opportunityId: string,
+  fieldId: string | undefined,
+): Promise<string | null> {
+  if (!fieldId) return null;
+  const response = (await ghlFetch(`/opportunities/${opportunityId}`)) as {
+    opportunity?: { customFields?: GHLFieldValue[] };
+  };
+  const fields = response.opportunity?.customFields ?? [];
+  return readFieldValue(fields.find((f) => f.id === fieldId));
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Appointment
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Compute a ride's END time from its start and its shape.
+ *   hourly   → start + hours
+ *   distance → start + duration_minutes (Routes figure carried from checkout)
+ *   flat     → start + duration_minutes (flatRouteDurations, also in metadata)
+ * Falls back to a 60-minute block if no duration is known, so an appointment is
+ * still created rather than skipped.
+ */
+export function rideEndISO(booking: BookingMetadata): string {
+  let minutes: number;
+  if (booking.ride_type === "hourly" && booking.hours) {
+    minutes = booking.hours * 60;
+  } else if (typeof booking.duration_minutes === "number" && booking.duration_minutes > 0) {
+    minutes = booking.duration_minutes;
+  } else {
+    minutes = 60; // safety fallback; better a rough block than no appointment
+  }
+  return addMinutesISO(booking.pickup_datetime, minutes);
+}
+
+/**
+ * Create the calendar appointment for a paid ride. Start = pickup, end = ride
+ * end. The appointment is the TIME-PRECISE anchor every timed workflow keys off,
+ * because GHL DATE custom fields truncate the time.
+ *
+ * Returns the appointment id (to store on the opportunity for retry-safety), or
+ * null when no calendar is configured yet — in which case we log and carry on
+ * rather than fail the whole booking. A booking with no appointment is
+ * recoverable; a 500 that loses the booking is not.
+ */
+export async function createRideAppointment(
+  contactId: string,
+  booking: BookingMetadata,
+): Promise<string | null> {
+  const calendarId = fieldConfig.calendarId;
+  if (!calendarId) {
+    console.warn(
+      `[ghl] no calendarId configured — skipping appointment for ${booking.external_id}. ` +
+        `Run npm run ghl:ids after creating the PSDLimo Rides calendar.`,
+    );
+    return null;
+  }
+
+  const locationId = requireEnv("GHL_LOCATION_ID");
+  const route =
+    booking.ride_type === "hourly"
+      ? `${booking.pickup_location} (${booking.hours ?? "?"} hrs)`
+      : `${booking.pickup_location} → ${booking.dropoff_location}`;
+
+  const response = (await ghlFetch("/calendars/events/appointments", {
+    method: "POST",
+    body: {
+      calendarId,
+      locationId,
+      contactId,
+      title: `${booking.contact_name} — ${route}`,
+      startTime: booking.pickup_datetime,
+      endTime: rideEndISO(booking),
+      // The booking reference + opportunity context, so the appointment stands
+      // on its own if someone opens it on the calendar.
+      appointmentStatus: "confirmed",
+      address: booking.pickup_location,
+      notes: `Ref ${booking.external_id}\n${route}\n${booking.vehicle_class} · ${booking.passengers} pax`,
+      ignoreDateRange: true, // allow booking outside the calendar's availability rules
+      toNotify: false, // the workflows own customer comms, not the calendar
+    },
+  })) as { id?: string; appointment?: { id?: string }; event?: { id?: string } };
+
+  const appointmentId = response.id ?? response.appointment?.id ?? response.event?.id ?? null;
+  if (!appointmentId) {
+    console.error(`[ghl] appointment created for ${booking.external_id} but no id returned`);
+  }
+  return appointmentId;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * Tags
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Tags for a paid booking. NOTE THE DOT NOTATION — the sandbox uses
- * `source.website`, not `source-website`. The CRM is the source of truth for tag
- * names, so the code matches the CRM rather than the original spec.
+ * Tags for a paid booking.
+ *
+ * NOTE THE DOT NOTATION — the CRM uses `source.website`, not `source-website`.
+ * The sandbox is the source of truth, and the internal tag vocabulary
+ * (`tags_csv` in the metadata) is hyphenated, so the ONLY transform needed is
+ * hyphen → dot on the FIRST separator: `service-pointtopoint` → `service.pointtopoint`.
+ * (Only the namespace separator changes; `pointtopoint` keeps its shape.)
+ *
+ * Deriving the tags happened once, server-side at checkout (deriveBookingTags).
+ * This function just translates the stored decision into CRM spelling — it adds
+ * no tags of its own, so the two never disagree.
  */
 export function tagsForBooking(booking: BookingMetadata): string[] {
-  const { tags } = fieldConfig;
-
-  const serviceTag =
-    booking.service_tag === "service-airport"
-      ? tags.serviceAirport
-      : booking.service_tag === "service-hourly"
-        ? tags.serviceHourly
-        : tags.servicePointToPoint;
-
-  return [tags.source, tags.payCard, tags.payPaid, serviceTag];
+  return booking.tags_csv
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => t.replace("-", "."));
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -379,18 +497,18 @@ export function tagsForBooking(booking: BookingMetadata): string[] {
  * ══════════════════════════════════════════════════════════════════════════ */
 
 export type PushResult =
-  | { created: true; contactId: string; opportunityId: string }
+  | { created: true; contactId: string; opportunityId: string; appointmentId: string | null }
   | { created: false; contactId: string; opportunityId: string; reason: "duplicate" };
 
 /**
- * Push a paid booking into the CRM.
+ * Push a paid booking into the CRM: contact → opportunity → appointment.
  *
  * Order matters: upsert the contact FIRST, because the idempotency check is
  * scoped to the contact. Upserting is itself idempotent, so doing it before the
  * duplicate check costs nothing and cannot create a duplicate contact.
  *
- * Throws on any GHL failure. The caller must let that propagate as a 500 so the
- * payment provider retries — swallowing it would lose the booking silently.
+ * Throws on any unexpected GHL failure. The caller must let that propagate as a
+ * 500 so the payment provider retries — swallowing it would lose the booking.
  */
 export async function pushBookingToGHL(booking: BookingMetadata): Promise<PushResult> {
   const tags = tagsForBooking(booking);
@@ -401,52 +519,92 @@ export async function pushBookingToGHL(booking: BookingMetadata): Promise<PushRe
     phone: booking.contact_phone,
     tags,
     preferredVehicle: booking.vehicle_class,
+    company: booking.company_name,
   });
 
+  // ── Idempotency ─────────────────────────────────────────────────────────
   const existing = await findOpportunityByPaymentRef(contactId, booking.external_id);
   if (existing) {
     console.log(
       `[ghl] booking ${booking.external_id} already recorded as opportunity ${existing} — ` +
         `skipping. This is the idempotency guard working, not an error.`,
     );
+    // Retry-safety: a prior attempt may have created the opportunity but failed
+    // before writing the appointment. Backfill it if missing.
+    await ensureAppointment(contactId, existing, booking);
     return { created: false, contactId, opportunityId: existing, reason: "duplicate" };
   }
 
+  // ── Create the opportunity ──────────────────────────────────────────────
+  let opportunityId: string;
   try {
-    const opportunityId = await createBookingOpportunity(contactId, booking);
-    return { created: true, contactId, opportunityId };
+    opportunityId = await createBookingOpportunity(contactId, booking);
   } catch (err) {
     /*
-     * SECOND LINE OF DEFENCE. GHL enforces its own per-contact duplicate rule
-     * and rejects with 400 "Can not create duplicate opportunity for the
-     * contact", helpfully including the existing id in `meta.existingId`.
-     *
-     * That is not a failure — it means the booking is already recorded, which
-     * is precisely the outcome we want. Treating it as an error would return
-     * 500 and make the provider retry a callback that has already succeeded,
-     * forever.
-     *
-     * This also covers the race where two callbacks arrive close enough
-     * together that both pass the search above before either has written.
+     * GHL's own per-contact duplicate rejection (400 "Can not create duplicate
+     * opportunity", with meta.existingId). With "Allow Multiple Opportunities
+     * per Contact" turned ON this should NEVER fire — so we do NOT blanket-treat
+     * it as success. We re-run the idempotency search and only accept it if THIS
+     * external_id is genuinely already recorded; otherwise it is a real error
+     * (500) worth surfacing, because a silent success here would drop a booking.
      */
-    if (err instanceof GHLError && err.status === 400 && err.body) {
-      try {
-        const parsed = JSON.parse(err.body) as {
-          message?: string;
-          meta?: { existingId?: string };
-        };
-        const existingId = parsed.meta?.existingId;
-        if (existingId && /duplicate opportunity/i.test(parsed.message ?? "")) {
-          console.log(
-            `[ghl] GHL rejected a duplicate for ${booking.external_id}; ` +
-              `existing opportunity ${existingId}. Treating as already-recorded.`,
-          );
-          return { created: false, contactId, opportunityId: existingId, reason: "duplicate" };
-        }
-      } catch {
-        // Body was not the shape we expected — fall through and rethrow.
+    if (err instanceof GHLError && err.status === 400 && /duplicate opportunity/i.test(err.body ?? "")) {
+      console.warn(
+        `[ghl] GHL rejected a duplicate opportunity for ${booking.external_id} despite ` +
+          `Allow-Multiple being expected ON. Re-verifying by payment_ref_id…`,
+      );
+      const reCheck = await findOpportunityByPaymentRef(contactId, booking.external_id);
+      if (reCheck) {
+        await ensureAppointment(contactId, reCheck, booking);
+        return { created: false, contactId, opportunityId: reCheck, reason: "duplicate" };
       }
+      // The 400 was about a DIFFERENT booking on this contact — a real problem.
+      console.error(
+        `[ghl] duplicate rejection for ${booking.external_id} did NOT match this ` +
+          `payment_ref_id. "Allow Multiple Opportunities per Contact" is likely OFF.`,
+      );
     }
     throw err;
+  }
+
+  // ── Appointment (never fails the booking) ───────────────────────────────
+  const appointmentId = await ensureAppointment(contactId, opportunityId, booking);
+
+  return { created: true, contactId, opportunityId, appointmentId };
+}
+
+/**
+ * Create the ride appointment if the opportunity does not already have one, and
+ * record its id on the opportunity. Idempotent and non-fatal: an appointment
+ * failure logs but does not throw, because a booking with no calendar entry is
+ * recoverable while a lost booking is not.
+ */
+async function ensureAppointment(
+  contactId: string,
+  opportunityId: string,
+  booking: BookingMetadata,
+): Promise<string | null> {
+  try {
+    const existingApptId = await readOpportunityField(
+      opportunityId,
+      fieldConfig.opportunity.appointment_id,
+    );
+    if (existingApptId) return existingApptId; // already created on a prior attempt
+
+    const appointmentId = await createRideAppointment(contactId, booking);
+    if (appointmentId) {
+      await updateOpportunityField(
+        opportunityId,
+        fieldConfig.opportunity.appointment_id,
+        appointmentId,
+      );
+    }
+    return appointmentId;
+  } catch (err) {
+    console.error(
+      `[ghl] appointment step failed for ${booking.external_id} (opportunity exists, ` +
+        `booking is safe): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
   }
 }

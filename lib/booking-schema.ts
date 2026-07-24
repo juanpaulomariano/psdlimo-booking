@@ -95,6 +95,12 @@ export const contactSchema = z.object({
     .regex(/^[+()\-.\s\d]+$/, "Phone number contains invalid characters"),
   /** Shown only when pickup or dropoff is an airport; optional everywhere. */
   flightNumber: z.string().trim().max(16).optional().or(z.literal("")),
+  /**
+   * Optional company, for corporate receipts. NEVER required — an empty value
+   * infers nothing. When present it identifies a corporate booking (company_name
+   * contact field + service.corporate / client.corporate tags).
+   */
+  company: z.string().trim().max(120).optional().or(z.literal("")),
   specialRequests: z.string().trim().max(400, "Please keep this under 400 characters").optional().or(z.literal("")),
 });
 
@@ -135,9 +141,18 @@ export const bookingMetadataSchema = z.object({
   passengers: z.coerce.number().int(),
   luggage: z.coerce.number().int(),
   hours: z.coerce.number().int().nullable().optional(),
+  /**
+   * Estimated ride duration in minutes. Drives the appointment END in the
+   * webhook. For distance rides it is the Routes API figure carried through from
+   * the quote; for flat routes it comes from flatRouteDurations; hourly rides use
+   * `hours` instead and leave this null.
+   */
+  duration_minutes: z.coerce.number().int().nullable().optional(),
   addons: z.string(), // CSV of add-on ids, "" when none
   flight_number: z.string(),
   special_requests: z.string(),
+  /** Optional company for corporate bookings; "" when not given. */
+  company_name: z.string(),
   quoted_total: z.coerce.number(),
   currency: z.string(),
   /** JSON-serialized PriceBreakdown, for the audit trail on the opportunity. */
@@ -145,8 +160,30 @@ export const bookingMetadataSchema = z.object({
   contact_name: z.string(),
   contact_email: z.string(),
   contact_phone: z.string(),
-  /** Derived at checkout so the webhook does not re-derive it differently. */
-  service_tag: z.enum(["service-airport", "service-hourly", "service-pointtopoint"]),
+  /**
+   * All CRM tags for this booking, derived server-side at checkout and stored as
+   * a CSV so the webhook applies exactly what checkout decided — one source of
+   * truth for tag logic. Internal HYPHEN enum values (service-airport); mapped to
+   * the dotted CRM tags (service.airport) by tagsForBooking() in lib/ghl.ts.
+   */
+  tags_csv: z.string(),
 });
 
 export type BookingMetadata = z.infer<typeof bookingMetadataSchema>;
+
+/** Internal tag vocabulary — hyphenated. Mapped to dotted CRM tags in lib/ghl.ts. */
+export const BOOKING_TAGS = [
+  "source-website",
+  "service-airport",
+  "service-hourly",
+  "service-intercity",
+  "service-winetour",
+  "service-group",
+  "service-corporate",
+  "service-pointtopoint",
+  "pay-card",
+  "pay-paid",
+  "client-corporate",
+] as const;
+
+export type BookingTag = (typeof BOOKING_TAGS)[number];

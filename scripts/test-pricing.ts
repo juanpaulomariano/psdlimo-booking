@@ -10,8 +10,8 @@
 import assert from "node:assert/strict";
 import { calculatePrice } from "@/lib/pricing";
 import { rideDetailsSchema } from "@/lib/booking-schema";
-import { MAX_PASSENGERS, VEHICLE_CLASSES } from "@/config/rates";
-import { formatPickup, laWallClockToISO, meetsLeadTime } from "@/lib/datetime";
+import { MAX_PASSENGERS, VEHICLE_CLASSES, deriveBookingTags } from "@/config/rates";
+import { addMinutesISO, formatPickup, laWallClockToISO, meetsLeadTime } from "@/lib/datetime";
 
 let passed = 0;
 const failures: string[] = [];
@@ -356,6 +356,93 @@ check("the engine is pure — identical inputs always give an identical price", 
     dropoff: "Hotel Zephyr, Beach Street, San Francisco, CA",
   } as unknown);
   assert.deepEqual(calculatePrice(ride, 16.0), calculatePrice(ride, 16.0));
+});
+
+console.log("\nBooking tag derivation (Phase 8.2)\n");
+
+const baseTags = {
+  rideType: "distance" as const,
+  pickupLocation: "100 Main St, San Francisco, CA",
+  dropoffLocation: "200 Market St, San Francisco, CA",
+  passengers: 2,
+  distanceMiles: 8,
+  isAirportFlatRoute: false,
+  hasCompany: false,
+};
+
+check("every booking gets source-website, pay-card, pay-paid", () => {
+  const t = deriveBookingTags(baseTags);
+  for (const req of ["source-website", "pay-card", "pay-paid"]) {
+    assert.ok(t.includes(req), `missing ${req}`);
+  }
+});
+
+check("a plain local ride is service-pointtopoint", () => {
+  assert.ok(deriveBookingTags(baseTags).includes("service-pointtopoint"));
+});
+
+check("an SFO pickup is tagged service-airport, not pointtopoint", () => {
+  const t = deriveBookingTags({ ...baseTags, pickupLocation: "SFO International Terminal" });
+  assert.ok(t.includes("service-airport"));
+  assert.ok(!t.includes("service-pointtopoint"));
+});
+
+check("a 60-mile ride is service-intercity", () => {
+  assert.ok(deriveBookingTags({ ...baseTags, distanceMiles: 60 }).includes("service-intercity"));
+});
+
+check("a Napa destination is service-winetour", () => {
+  assert.ok(
+    deriveBookingTags({ ...baseTags, dropoffLocation: "Napa, CA" }).includes("service-winetour"),
+  );
+});
+
+check("7+ passengers is service-group", () => {
+  assert.ok(deriveBookingTags({ ...baseTags, passengers: 8 }).includes("service-group"));
+});
+
+check("a company adds service-corporate AND client-corporate", () => {
+  const t = deriveBookingTags({ ...baseTags, hasCompany: true });
+  assert.ok(t.includes("service-corporate"));
+  assert.ok(t.includes("client-corporate"));
+});
+
+check("tags stack — a corporate airport group ride carries all three", () => {
+  const t = deriveBookingTags({
+    ...baseTags,
+    pickupLocation: "SFO",
+    passengers: 9,
+    hasCompany: true,
+  });
+  assert.ok(t.includes("service-airport"));
+  assert.ok(t.includes("service-group"));
+  assert.ok(t.includes("service-corporate"));
+});
+
+check("hyphen→dot mapping only touches the namespace separator", () => {
+  // mirrors tagsForBooking(): service-pointtopoint → service.pointtopoint
+  const toCrm = (t: string) => t.replace("-", ".");
+  assert.equal(toCrm("service-pointtopoint"), "service.pointtopoint");
+  assert.equal(toCrm("client-corporate"), "client.corporate");
+  assert.equal(toCrm("source-website"), "source.website");
+});
+
+console.log("\nAppointment-end datetime math (Phase 8.4)\n");
+
+check("adds minutes and preserves the PDT offset", () => {
+  assert.equal(addMinutesISO("2026-07-24T09:00:00-07:00", 30), "2026-07-24T09:30:00-07:00");
+});
+
+check("adds hours across the hour boundary", () => {
+  assert.equal(addMinutesISO("2026-07-24T09:00:00-07:00", 90), "2026-07-24T10:30:00-07:00");
+});
+
+check("preserves a PST (-08:00) offset in January", () => {
+  assert.equal(addMinutesISO("2026-01-24T09:00:00-08:00", 45), "2026-01-24T09:45:00-08:00");
+});
+
+check("rolls past midnight correctly", () => {
+  assert.equal(addMinutesISO("2026-07-24T23:30:00-07:00", 60), "2026-07-25T00:30:00-07:00");
 });
 
 // ── Summary ────────────────────────────────────────────────────────────────

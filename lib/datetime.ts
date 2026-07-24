@@ -127,3 +127,38 @@ export function meetsLeadTime(iso: string, now: Date = new Date()): boolean {
 export function earliestPickupISO(now: Date = new Date()): string {
   return new Date(now.getTime() + MIN_LEAD_TIME_HOURS * 3_600_000).toISOString();
 }
+
+/**
+ * Add minutes to an offset-carrying ISO string, PRESERVING the original offset.
+ * Used to compute a ride's appointment END from its pickup time.
+ *
+ * `new Date(iso).toISOString()` would return the instant in UTC (`…Z`), losing
+ * the LA offset — a GHL appointment written in UTC displays at the wrong wall
+ * time. So we re-attach the source string's offset to the shifted instant.
+ *
+ * @example addMinutesISO("2026-07-24T09:00:00-07:00", 30) → "2026-07-24T09:30:00-07:00"
+ */
+export function addMinutesISO(iso: string, minutes: number): string {
+  const offsetMatch = /([+-]\d{2}:\d{2}|Z)$/.exec(iso);
+  const offset = offsetMatch ? offsetMatch[1] : "Z";
+  const offsetMs =
+    offset === "Z"
+      ? 0
+      : (() => {
+          const sign = offset[0] === "-" ? -1 : 1;
+          const [h, m] = offset.slice(1).split(":").map(Number);
+          return sign * (h * 60 + m) * 60_000;
+        })();
+
+  const shifted = new Date(new Date(iso).getTime() + minutes * 60_000);
+  // Format the shifted instant AS SEEN from the original offset.
+  const local = new Date(shifted.getTime() + offsetMs);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const y = local.getUTCFullYear();
+  const mo = pad(local.getUTCMonth() + 1);
+  const d = pad(local.getUTCDate());
+  const hh = pad(local.getUTCHours());
+  const mm = pad(local.getUTCMinutes());
+  const ss = pad(local.getUTCSeconds());
+  return `${y}-${mo}-${d}T${hh}:${mm}:${ss}${offset}`;
+}

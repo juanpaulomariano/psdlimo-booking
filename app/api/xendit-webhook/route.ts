@@ -127,7 +127,8 @@ export async function POST(request: Request) {
 
     console.log(
       `[webhook] ${booking.external_id} recorded — contact ${result.contactId}, ` +
-        `opportunity ${result.opportunityId}, $${booking.quoted_total}`,
+        `opportunity ${result.opportunityId}, appointment ${result.appointmentId ?? "none"}, ` +
+        `$${booking.quoted_total}`,
     );
 
     return NextResponse.json({
@@ -135,6 +136,7 @@ export async function POST(request: Request) {
       acted: true,
       contactId: result.contactId,
       opportunityId: result.opportunityId,
+      appointmentId: result.appointmentId,
     });
   } catch (err) {
     /*

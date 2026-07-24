@@ -112,6 +112,9 @@ export const FLAT_ROUTES = [
     to: "Downtown San Francisco, CA",
     price: 120, // PLACEHOLDER
     isAirport: true,
+    // Typical drive time. Feeds the calendar appointment END for this route,
+    // since a flat route makes no Routes API call. PLACEHOLDER.
+    durationMinutes: 35, // PLACEHOLDER
   },
   {
     id: "oak-financial-district",
@@ -120,6 +123,7 @@ export const FLAT_ROUTES = [
     to: "Financial District, San Francisco, CA",
     price: 110, // PLACEHOLDER
     isAirport: true,
+    durationMinutes: 30, // PLACEHOLDER
   },
   {
     id: "sf-napa",
@@ -128,6 +132,7 @@ export const FLAT_ROUTES = [
     to: "Napa, CA",
     price: 260, // PLACEHOLDER
     isAirport: false,
+    durationMinutes: 90, // PLACEHOLDER
   },
 ] as const;
 
@@ -174,3 +179,85 @@ export const PRICING_ASSUMPTIONS = [
   "Hourly rides ignore distance entirely — the hourly rate is all-inclusive of mileage.",
   "Gratuity is not collected at booking.",
 ] as const;
+
+/* ── Booking tag derivation ─────────────────────────────────────────────────
+ * A ride's CRM tags are derived from its SHAPE — where it goes, how big, how
+ * long, whether a company is named. Never from anything the customer is asked to
+ * disclose about WHY they are travelling (occasion tags like wedding/citytour
+ * have no producer on the website path, by design — see the blueprint's privacy
+ * note). This is a pure function so it is unit-testable and identical wherever
+ * it runs.
+ */
+
+/** ≥ this many miles reads as an intercity run rather than a local hop. PLACEHOLDER. */
+export const INTERCITY_MILES = 50; // PLACEHOLDER
+
+/** ≥ this many passengers reads as a group booking. */
+export const GROUP_PASSENGERS = 7; // PLACEHOLDER
+
+/** Far-city name fragments that mark an intercity ride even under the mileage bar. */
+const FAR_CITY_PATTERN = /\b(sacramento|los angeles|monterey|santa cruz|carmel|tahoe)\b/i;
+
+/** Wine-country destinations. */
+const WINE_COUNTRY_PATTERN = /\b(napa|sonoma|healdsburg|calistoga|yountville)\b/i;
+
+/** Airport markers in a free-text address. */
+const AIRPORT_ADDRESS_PATTERN = /\b(airport|sfo|oak|sjc|international terminal)\b/i;
+
+export type TagDerivationInput = {
+  rideType: "distance" | "hourly" | "flat";
+  pickupLocation: string;
+  dropoffLocation: string;
+  /** Whole-dollar total; used for no tag today but kept for future value tags. */
+  passengers: number;
+  /** Road miles for distance rides; null otherwise. */
+  distanceMiles: number | null;
+  isAirportFlatRoute: boolean;
+  hasCompany: boolean;
+};
+
+/**
+ * The complete internal (hyphenated) tag set for a booking. `source-website`,
+ * `pay-card`, and `pay-paid` are always present — every website booking is a
+ * paid card booking. Exactly one `service-*` is guaranteed (falling back to
+ * `service-pointtopoint`); others stack on top.
+ */
+export function deriveBookingTags(input: TagDerivationInput): string[] {
+  const tags = new Set<string>(["source-website", "pay-card", "pay-paid"]);
+
+  const isAirport =
+    input.isAirportFlatRoute ||
+    AIRPORT_ADDRESS_PATTERN.test(input.pickupLocation) ||
+    AIRPORT_ADDRESS_PATTERN.test(input.dropoffLocation);
+
+  // Primary service classification. An airport hourly ride is still "airport";
+  // order here decides the PRIMARY, but tags stack so it rarely matters.
+  if (isAirport) tags.add("service-airport");
+  if (input.rideType === "hourly") tags.add("service-hourly");
+
+  const isIntercity =
+    (input.distanceMiles !== null && input.distanceMiles >= INTERCITY_MILES) ||
+    FAR_CITY_PATTERN.test(input.dropoffLocation) ||
+    FAR_CITY_PATTERN.test(input.pickupLocation);
+  if (isIntercity) tags.add("service-intercity");
+
+  if (
+    WINE_COUNTRY_PATTERN.test(input.dropoffLocation) ||
+    WINE_COUNTRY_PATTERN.test(input.pickupLocation)
+  ) {
+    tags.add("service-winetour");
+  }
+
+  if (input.passengers >= GROUP_PASSENGERS) tags.add("service-group");
+
+  if (input.hasCompany) {
+    tags.add("service-corporate");
+    tags.add("client-corporate");
+  }
+
+  // Guarantee at least one service-* tag.
+  const hasService = [...tags].some((t) => t.startsWith("service-"));
+  if (!hasService) tags.add("service-pointtopoint");
+
+  return [...tags];
+}

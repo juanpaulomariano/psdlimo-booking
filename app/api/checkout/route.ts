@@ -19,11 +19,13 @@ import { checkoutRequestSchema, type BookingMetadata } from "@/lib/booking-schem
 import { calculatePrice } from "@/lib/pricing";
 import { RoutingError, getDrivingRoute } from "@/lib/maps";
 import { PaymentError, createInvoice } from "@/lib/payments";
-import { MIN_LEAD_TIME_HOURS, getFlatRoute, getVehicleClass } from "@/config/rates";
+import {
+  MIN_LEAD_TIME_HOURS,
+  deriveBookingTags,
+  getFlatRoute,
+  getVehicleClass,
+} from "@/config/rates";
 import { formatPickupShort, meetsLeadTime } from "@/lib/datetime";
-
-/** Airport detection for the service-* tag. Mirrors the wizard's own check. */
-const AIRPORT_PATTERN = /\b(airport|sfo|oak|sjc|international terminal)\b/i;
 
 export async function POST(request: Request) {
   // ── Parse ────────────────────────────────────────────────────────────────
@@ -54,10 +56,14 @@ export async function POST(request: Request) {
 
   // ── Distance: a FRESH lookup, not a value carried from the quote ─────────
   let distanceMiles: number | null = null;
+  let durationMinutes: number | null = null;
   if (ride.rideType === "distance") {
     try {
       const route = await getDrivingRoute(ride.pickup, ride.dropoff);
       distanceMiles = route.distanceMiles;
+      // Carried into metadata so the webhook can compute the appointment END
+      // without a second Routes call.
+      durationMinutes = route.durationMinutes;
     } catch (err) {
       if (err instanceof RoutingError) {
         const status = err.code === "INVALID_ADDRESS" || err.code === "NO_ROUTE" ? 400 : 502;
@@ -86,24 +92,45 @@ export async function POST(request: Request) {
    */
   const externalId = `psdlimo-${Date.now()}-${nanoid(8)}`;
 
-  // ── Derive the display strings and the service tag ───────────────────────
-  const pickupLocation =
-    ride.rideType === "flat" ? getFlatRoute(ride.flatRouteId).from : ride.pickup;
-  const dropoffLocation =
-    ride.rideType === "flat"
-      ? getFlatRoute(ride.flatRouteId).to
-      : ride.rideType === "distance"
-        ? ride.dropoff
-        : "As directed";
+  // ── Derive display strings, duration, and the full tag set ───────────────
+  // Narrow on rideType so the union's per-variant fields are accessible.
+  let pickupLocation: string;
+  let dropoffLocation: string;
+  let isAirportFlatRoute = false;
 
-  const serviceTag: BookingMetadata["service_tag"] =
-    ride.rideType === "hourly"
-      ? "service-hourly"
-      : (ride.rideType === "flat" && getFlatRoute(ride.flatRouteId).isAirport) ||
-          AIRPORT_PATTERN.test(pickupLocation) ||
-          AIRPORT_PATTERN.test(dropoffLocation)
-        ? "service-airport"
-        : "service-pointtopoint";
+  switch (ride.rideType) {
+    case "flat": {
+      const flatRoute = getFlatRoute(ride.flatRouteId);
+      pickupLocation = flatRoute.from;
+      dropoffLocation = flatRoute.to;
+      isAirportFlatRoute = flatRoute.isAirport;
+      // A flat route makes no Routes call, so its duration comes from config.
+      durationMinutes = flatRoute.durationMinutes;
+      break;
+    }
+    case "distance":
+      pickupLocation = ride.pickup;
+      dropoffLocation = ride.dropoff;
+      // durationMinutes already captured from the Routes lookup above.
+      break;
+    case "hourly":
+      pickupLocation = ride.pickup;
+      dropoffLocation = "As directed";
+      // hourly rides have no duration; the appointment END uses `hours`.
+      break;
+  }
+
+  const company = (contact.company ?? "").trim().slice(0, 120);
+
+  const tags = deriveBookingTags({
+    rideType: ride.rideType,
+    pickupLocation,
+    dropoffLocation,
+    passengers: ride.passengers,
+    distanceMiles,
+    isAirportFlatRoute,
+    hasCompany: company.length > 0,
+  });
 
   const vehicleLabel = getVehicleClass(ride.vehicleClass).label;
 
@@ -126,16 +153,18 @@ export async function POST(request: Request) {
     passengers: ride.passengers,
     luggage: ride.luggage,
     hours: ride.rideType === "hourly" ? ride.hours : null,
+    duration_minutes: durationMinutes,
     addons: ride.addOns.join(","),
     flight_number: (contact.flightNumber ?? "").slice(0, 16),
     special_requests: (contact.specialRequests ?? "").slice(0, 400),
+    company_name: company,
     quoted_total: breakdown.total,
     currency: breakdown.currency,
     breakdown_json: JSON.stringify(breakdown.lines),
     contact_name: contact.name,
     contact_email: contact.email,
     contact_phone: contact.phone,
-    service_tag: serviceTag,
+    tags_csv: tags.join(","),
   };
 
   // ── Create the invoice ───────────────────────────────────────────────────
