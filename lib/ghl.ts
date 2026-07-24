@@ -363,41 +363,49 @@ export async function createBookingOpportunity(
   return opportunityId;
 }
 
+/** The tag a detected double booking is marked with. Contact-scoped (GHL tags
+ *  live on contacts). A GHL workflow watching for this tag emails the owner. */
+export const DOUBLE_BOOKING_TAG = "ops.double-booking";
+
 /**
- * Move an opportunity to the "Possible Double Booking" stage.
+ * Flag a detected double booking by TAGGING the contact, not by moving the
+ * opportunity's stage.
  *
- * This is the DISPATCH side of the double-booking safeguard: when the assign
- * webhook detects a driver/vehicle time clash, it flags the affected booking's
- * opportunity so the owner sees it in GHL even if the alert email is overlooked.
+ * WHY A TAG, NOT A STAGE MOVE (decided 2026-07-24): the pipeline already has a
+ * meaningful stage lifecycle (New Inquiry → … → Assigned → In Progress →
+ * Completed → Cancelled). Moving a clashing booking to a dedicated stage would
+ * DESTROY the record of where it actually was (e.g. "Assigned"), and an
+ * opportunity can only occupy one stage. A tag layers the warning ON TOP of the
+ * real stage instead — nothing is overwritten, and the booking stays exactly
+ * where it belongs.
  *
- * Resilient by design. The stage id comes from config (populated by
- * `npm run ghl:ids` once the stage exists in GHL — that is Stage A' work). If it
- * is not configured yet, this LOGS LOUDLY and returns false rather than throwing:
- * a missing stage must not turn a detected clash into a 500 that makes GHL/the
- * caller retry. The email alert (a GHL workflow on this stage) is the primary
- * signal; the stage move is the backstop.
+ * The tag is added to the CONTACT because GHL tags are contact-scoped. A GHL
+ * workflow (WF-04) watches for this tag and emails the owner — that is the
+ * primary alert; the tag is also the durable, filterable backstop.
  *
- * @returns true if the opportunity was moved, false if the stage is not yet
- *          configured (caller decides whether that is acceptable).
+ * Resilient: never throws. A tagging failure must not turn a detected clash into
+ * a 500 that makes the caller retry (the clash is already logged). Returns
+ * whether the tag was applied.
  */
-export async function flagPossibleDoubleBooking(opportunityId: string): Promise<boolean> {
-  const stageId = (fieldConfig as { stagePossibleDoubleBookingId?: string })
-    .stagePossibleDoubleBookingId;
-  if (!stageId) {
-    console.warn(
-      `[ghl] cannot flag ${opportunityId} as a possible double booking: no ` +
-        `stagePossibleDoubleBookingId in config/ghl-fields.json. Create the ` +
-        `"Possible Double Booking" stage in GHL and run npm run ghl:ids. ` +
-        `The clash was still detected and (if wired) emailed.`,
+export async function flagPossibleDoubleBooking(contactId: string): Promise<boolean> {
+  if (!contactId) {
+    console.warn("[ghl] cannot flag a double booking: no contactId on the trip.");
+    return false;
+  }
+  try {
+    await ghlFetch(`/contacts/${contactId}/tags`, {
+      method: "POST",
+      body: { tags: [DOUBLE_BOOKING_TAG] },
+    });
+    console.log(`[ghl] contact ${contactId} tagged "${DOUBLE_BOOKING_TAG}" (possible double booking)`);
+    return true;
+  } catch (err) {
+    console.error(
+      `[ghl] failed to tag contact ${contactId} as a double booking (clash still ` +
+        `detected + logged): ${err instanceof Error ? err.message : String(err)}`,
     );
     return false;
   }
-  await ghlFetch(`/opportunities/${opportunityId}`, {
-    method: "PUT",
-    body: { pipelineStageId: stageId },
-  });
-  console.log(`[ghl] opportunity ${opportunityId} moved to Possible Double Booking`);
-  return true;
 }
 
 /** Write a single custom field onto an existing opportunity (e.g. appointment_id). */

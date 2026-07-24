@@ -121,14 +121,20 @@ export async function resolveDriverByName(name: string): Promise<Driver | null> 
   return rows[0] ?? null;
 }
 
-/** The GHL opportunity id recorded for a booking, or null if unknown/empty.
- *  Lets the dispatch route flag the right opportunity without searching GHL. */
-export async function getTripOpportunityId(externalId: string): Promise<string | null> {
+/** The GHL contact + opportunity ids recorded for a booking, so the dispatch
+ *  route can flag the clash (tag the contact) without searching GHL. Empty
+ *  strings when unknown. */
+export async function getTripGHLIds(
+  externalId: string,
+): Promise<{ contactId: string; opportunityId: string } | null> {
   const rows = (await sql`
-    SELECT ghl_opportunity_id FROM trip WHERE external_id = ${externalId} LIMIT 1
-  `) as Array<{ ghl_opportunity_id: string }>;
-  const id = rows[0]?.ghl_opportunity_id?.trim();
-  return id ? id : null;
+    SELECT ghl_contact_id, ghl_opportunity_id FROM trip WHERE external_id = ${externalId} LIMIT 1
+  `) as Array<{ ghl_contact_id: string; ghl_opportunity_id: string }>;
+  if (rows.length === 0) return null;
+  return {
+    contactId: rows[0].ghl_contact_id?.trim() ?? "",
+    opportunityId: rows[0].ghl_opportunity_id?.trim() ?? "",
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

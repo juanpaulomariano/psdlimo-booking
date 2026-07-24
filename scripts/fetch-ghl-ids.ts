@@ -70,17 +70,21 @@ const PIPELINE_NAME = "PSDLimo Bookings";
 const STAGE_NAME = "Confirmed";
 
 /**
- * Additional pipeline stages the Stage A′ workflows use. Unlike `Confirmed`
- * (required — the webhook writes bookings straight into it), these are resolved
- * as WARNINGS: they are created during the GHL workflow setup, so the resolver
- * must not hard-fail before they exist. Once created, their ids flow into
- * config/ghl-fields.json and the code that references them activates.
- *   - Possible Double Booking: where a detected clash is flagged (lib/ghl.ts)
- *   - Completed: where WF-05 moves a finished ride
+ * Additional pipeline stages the Stage A′ workflows reference. These already
+ * exist in the pipeline (verified 2026-07-24), so they resolve normally; if one
+ * is ever renamed/removed the resolver WARNS rather than failing, since the
+ * booking flow itself only hard-depends on `Confirmed`.
+ *   - Assigned:   where WF-03 optionally moves a booking once a driver is set
+ *   - Completed:  where WF-05 moves a finished ride
+ *   - Cancelled:  referenced by cancellation handling
+ * NOTE: a double booking is flagged with the `ops.double-booking` TAG, not a
+ * stage move (decided 2026-07-24), so there is deliberately NO
+ * "Possible Double Booking" stage.
  */
 const OPTIONAL_STAGES: Record<string, string> = {
-  stagePossibleDoubleBookingId: "Possible Double Booking",
+  stageAssignedId: "Assigned",
   stageCompletedId: "Completed",
+  stageCancelledId: "Cancelled",
 };
 
 /**
@@ -289,9 +293,10 @@ async function main() {
       } else {
         optionalStageIds[key] = "";
         warnings.push(
-          `Pipeline "${PIPELINE_NAME}" has no "${stageName}" stage yet — ${key} left blank.\n` +
-            `      Create it (GHL_WORKFLOWS_SETUP.md S1/S2) and re-run to activate the\n` +
-            `      workflow that keys off it. Not fatal: the code no-ops until the id exists.`,
+          `Pipeline "${PIPELINE_NAME}" has no "${stageName}" stage — ${key} left blank.\n` +
+            `      This stage was expected to exist; if it was renamed, update either the\n` +
+            `      stage name in GHL or OPTIONAL_STAGES here. Not fatal: the code that\n` +
+            `      references it no-ops on a blank id.`,
         );
       }
     }

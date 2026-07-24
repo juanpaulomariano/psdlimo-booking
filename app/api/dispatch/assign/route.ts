@@ -33,7 +33,7 @@ import { z } from "zod";
 import { isDatabaseConfigured } from "@/lib/db";
 import {
   assignDriverAndDetectClashes,
-  getTripOpportunityId,
+  getTripGHLIds,
   resolveDriverByName,
   type Clash,
 } from "@/lib/trips";
@@ -173,7 +173,7 @@ export async function POST(request: Request) {
       driver: driver.name,
       clash: true,
       clashesWith: clashes.map((c) => c.external_id),
-      opportunityFlagged: flagged,
+      flagged,
     });
   } catch (err) {
     // DB or GHL failure — recoverable, so 500 and let GHL retry. The assignment
@@ -193,19 +193,17 @@ export async function POST(request: Request) {
 }
 
 /**
- * Look up the opportunity id for a clashing trip and move it to the Possible
- * Double Booking stage. The trip carries `ghl_opportunity_id` (recorded by the
- * payment webhook), so no GHL search is needed. Returns whether the flag stuck
- * (false when the stage is not configured yet — Stage A').
+ * Flag a clashing booking in GHL by TAGGING its contact (not moving the stage —
+ * see flagPossibleDoubleBooking for the why). The trip carries `ghl_contact_id`
+ * (recorded by the payment webhook), so no GHL search is needed. A GHL workflow
+ * watching for the tag emails the owner. Returns whether the flag stuck.
  */
 async function flagBooking(
   externalId: string,
   driverName: string,
   clashes: Clash[],
 ): Promise<boolean> {
-  // The trip whose assignment triggered the clash is the one we flag. Its
-  // opportunity id was stored at booking time, so no GHL search is needed.
-  const opportunityId = await getTripOpportunityId(externalId);
+  const ids = await getTripGHLIds(externalId);
 
   const conflictList = clashes
     .map((c) => `${c.external_id} (${c.customer_name}, ${c.reason})`)
@@ -214,11 +212,11 @@ async function flagBooking(
     `[dispatch] DOUBLE BOOKING: ${driverName} assigned to ${externalId} clashes with ${conflictList}`,
   );
 
-  if (!opportunityId) {
+  if (!ids?.contactId) {
     console.error(
-      `[dispatch] clash detected for ${externalId} but its trip has no ghl_opportunity_id — cannot flag.`,
+      `[dispatch] clash detected for ${externalId} but its trip has no ghl_contact_id — cannot flag.`,
     );
     return false;
   }
-  return flagPossibleDoubleBooking(opportunityId);
+  return flagPossibleDoubleBooking(ids.contactId);
 }
