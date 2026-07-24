@@ -205,7 +205,37 @@ source rather than warning after the fact.
 **Known limits (v1, disclose during the demo):** the rule is per-DAY, so it does
 not model travel time between rides on different days; ride duration is estimated;
 vehicle-level assignment is not yet surfaced (drivers only). Driver accept/reject,
-live statuses (En-Route/Arrived), and a driver portal are FUTURE phases.
+live statuses (En-Route/Arrived), and a driver portal are FUTURE phases (§10a).
+
+## 10a. Driver portal — SPEC, build AFTER the demo (decided 2026-07-25)
+A drivers-only web app so each chauffeur sees their own schedule and updates ride
+status. Deliberately NOT built yet — it's a real, self-contained phase, and piling
+it on before the current dispatch is demo-tested would add exactly the edge-case
+surface we want to avoid. Captured here so it's ready to build cleanly.
+
+**Scope when built:**
+- **Driver accounts.** A new `driver` auth role (the auth system already supports
+  roles). A driver logs in and is linked to their `driver` roster row. The owner
+  creates/links accounts from the admin roster; drivers NEVER get a GHL seat.
+- **"My schedule" (read-only, scoped).** A driver sees ONLY the trips assigned to
+  them — never other drivers' trips, never pricing, never the customer's full
+  contact record beyond what a chauffeur needs (name, pickup, dropoff, time,
+  notes). Access control is the careful part: enforced server-side by driver id,
+  not just hidden in the UI.
+- **Status updates → In Progress / Completed / Cancelled.** The driver advances
+  their trip's status. A NO-SHOW is Cancelled with a distinguishing tag
+  (`cancelled.noshow`) so the owner can tell a no-show from a normal cancellation
+  in reporting. (Future finer-grained statuses — En-Route / Arrived / On-Board —
+  slot in here too.)
+- **GHL stays central via one-way sync.** A status change syncs to the matching
+  GHL opportunity stage (In Progress / Completed / Cancelled) + tag — the SAME
+  one-way pattern already built for driver assignment (`syncDriverAssignmentToGHL`).
+  The owner still sees everything in GHL; the portal is just the drivers' window.
+
+**Why a second UI is acceptable here** (given "GHL is the central offer"): the
+portal is for DRIVERS, not the owner. The owner's cockpit stays GHL; drivers get a
+light app because giving each driver a GHL seat is neither wanted nor affordable.
+The DB remains the silent backbone; the portal is a scoped read/write view of it.
 
 ## 11. Cancellation (customer-facing)
 A "Request Cancellation" button opens a contact popup — Email / WhatsApp / Call.

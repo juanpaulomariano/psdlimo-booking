@@ -14,6 +14,7 @@
     "test": "npm run test:pricing && npm run test:payments",
     "db:migrate": "tsx --env-file=.env.local scripts/db-migrate.ts",
     "db:seed": "tsx --env-file=.env.local scripts/db-seed.ts",
+    "seed:bookings": "tsx --conditions=react-server --env-file=.env.local scripts/seed-demo-bookings.ts",
     "admin:password": "tsx --conditions=react-server --env-file=.env.local scripts/set-admin-password.ts"
   },
   "dependencies": {
