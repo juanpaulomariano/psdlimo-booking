@@ -24,9 +24,11 @@
  */
 
 import { NextResponse } from "next/server";
-import { bookingMetadataSchema } from "@/lib/booking-schema";
+import { bookingMetadataSchema, type BookingMetadata } from "@/lib/booking-schema";
 import { fetchBookingMetadata, parseCallback, verifyCallback } from "@/lib/payments";
 import { GHLError, pushBookingToGHL } from "@/lib/ghl";
+import { isDatabaseConfigured } from "@/lib/db";
+import { upsertTrip } from "@/lib/trips";
 
 export async function POST(request: Request) {
   /* ── 1. Authenticate FIRST, before touching the body ──────────────────── */
@@ -117,6 +119,9 @@ export async function POST(request: Request) {
 
     if (!result.created) {
       console.log(`[webhook] ${booking.external_id} was already recorded — no duplicate created`);
+      // Still record/refresh the trip: a prior attempt may have created the GHL
+      // opportunity but failed before the trip write. Idempotent, non-fatal.
+      await recordTrip(booking, result.contactId, result.opportunityId);
       return NextResponse.json({
         received: true,
         acted: false,
@@ -124,6 +129,12 @@ export async function POST(request: Request) {
         opportunityId: result.opportunityId,
       });
     }
+
+    // Record the ride as a trip in the SILENT dispatch DB. This drives the
+    // double-booking check when a driver is later assigned in GHL. It is
+    // deliberately NON-FATAL: the booking already exists in the CRM, so a DB
+    // hiccup must not return 500 and make the provider retry a done booking.
+    await recordTrip(booking, result.contactId, result.opportunityId);
 
     console.log(
       `[webhook] ${booking.external_id} recorded — contact ${result.contactId}, ` +
@@ -159,6 +170,37 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Could not record the booking", reference: booking.external_id },
       { status: 500 },
+    );
+  }
+}
+
+/**
+ * Write the paid ride to the silent dispatch DB. Isolated here so its failure is
+ * contained: the CRM push has already succeeded by the time this runs, so a DB
+ * problem is logged and swallowed rather than allowed to fail the callback. If
+ * no DB is configured (e.g. a bare demo without DATABASE_URL) this is a no-op —
+ * the booking still lands in GHL, only the double-booking check is unavailable.
+ */
+async function recordTrip(
+  booking: BookingMetadata,
+  contactId: string,
+  opportunityId: string,
+): Promise<void> {
+  if (!isDatabaseConfigured()) {
+    console.warn(
+      `[webhook] no DATABASE_URL — skipping trip record for ${booking.external_id}. ` +
+        `The booking is in GHL; double-booking detection is unavailable until a DB is set.`,
+    );
+    return;
+  }
+  try {
+    await upsertTrip(booking, { contactId, opportunityId });
+    console.log(`[webhook] trip recorded for ${booking.external_id}`);
+  } catch (err) {
+    // Non-fatal by design — see the call site. The booking is safe in the CRM.
+    console.error(
+      `[webhook] trip write failed for ${booking.external_id} (booking is safe in GHL): ` +
+        `${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }

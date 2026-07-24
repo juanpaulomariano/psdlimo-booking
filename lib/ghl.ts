@@ -363,6 +363,43 @@ export async function createBookingOpportunity(
   return opportunityId;
 }
 
+/**
+ * Move an opportunity to the "Possible Double Booking" stage.
+ *
+ * This is the DISPATCH side of the double-booking safeguard: when the assign
+ * webhook detects a driver/vehicle time clash, it flags the affected booking's
+ * opportunity so the owner sees it in GHL even if the alert email is overlooked.
+ *
+ * Resilient by design. The stage id comes from config (populated by
+ * `npm run ghl:ids` once the stage exists in GHL — that is Stage A' work). If it
+ * is not configured yet, this LOGS LOUDLY and returns false rather than throwing:
+ * a missing stage must not turn a detected clash into a 500 that makes GHL/the
+ * caller retry. The email alert (a GHL workflow on this stage) is the primary
+ * signal; the stage move is the backstop.
+ *
+ * @returns true if the opportunity was moved, false if the stage is not yet
+ *          configured (caller decides whether that is acceptable).
+ */
+export async function flagPossibleDoubleBooking(opportunityId: string): Promise<boolean> {
+  const stageId = (fieldConfig as { stagePossibleDoubleBookingId?: string })
+    .stagePossibleDoubleBookingId;
+  if (!stageId) {
+    console.warn(
+      `[ghl] cannot flag ${opportunityId} as a possible double booking: no ` +
+        `stagePossibleDoubleBookingId in config/ghl-fields.json. Create the ` +
+        `"Possible Double Booking" stage in GHL and run npm run ghl:ids. ` +
+        `The clash was still detected and (if wired) emailed.`,
+    );
+    return false;
+  }
+  await ghlFetch(`/opportunities/${opportunityId}`, {
+    method: "PUT",
+    body: { pipelineStageId: stageId },
+  });
+  console.log(`[ghl] opportunity ${opportunityId} moved to Possible Double Booking`);
+  return true;
+}
+
 /** Write a single custom field onto an existing opportunity (e.g. appointment_id). */
 export async function updateOpportunityField(
   opportunityId: string,

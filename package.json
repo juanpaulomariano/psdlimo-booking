@@ -10,6 +10,7 @@
     "ghl:ids": "tsx --env-file=.env.local scripts/fetch-ghl-ids.ts",
     "test:pricing": "tsx scripts/test-pricing.ts",
     "test:payments": "tsx --conditions=react-server scripts/test-payments.ts",
+    "test:dispatch": "tsx --conditions=react-server --env-file=.env.local scripts/test-dispatch.ts",
     "test": "npm run test:pricing && npm run test:payments",
     "db:migrate": "tsx --env-file=.env.local scripts/db-migrate.ts",
     "db:seed": "tsx --env-file=.env.local scripts/db-seed.ts",

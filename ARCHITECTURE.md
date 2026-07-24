@@ -100,7 +100,8 @@ scripts/
 
 ## 6. Database (Neon Postgres)
 Tables live now: `rate_config` (editable scalar knobs), `vehicle_class`,
-`add_on`, `app_user`. Planned: `driver`, `vehicle`, `trip` (Stage E).
+`add_on`, `app_user`, `driver`, `vehicle`, `trip` (Stage E — the silent dispatch
+backend; see §10).
 
 - **Seeded FROM `config/rates.ts`** so the DB starts an exact mirror of the code —
   moving pricing to the DB changed the SOURCE of numbers, not the numbers.
@@ -158,7 +159,7 @@ Quoted, Confirmed, Assigned, In Progress, Completed, Cancelled.
 - This reshape is done SURGICALLY, AFTER the DB + dispatch settle GHL's final
   shape — which is why the 12 workflows are built LAST, not next.
 
-## 10. Dispatch model (Stage E — GHL-central, DB-silent)
+## 10. Dispatch model (Stage E — GHL-central, DB-silent) — BUILT
 - Owner assigns a driver IN GHL. On assignment, a webhook fires → the DB checks
   all trips for a driver/vehicle time clash → if clash, EMAIL the owner AND move
   the opportunity to the **Possible Double Booking** stage. Warning-after, not a
@@ -168,6 +169,28 @@ Quoted, Confirmed, Assigned, In Progress, Completed, Cancelled.
   website dashboard the owner logs into.
 - Driver accept/reject + live statuses (En-Route/Arrived/On-Board) + a driver
   portal are a FUTURE phase.
+
+**How it's implemented (2026-07-24):**
+- Tables `driver`, `vehicle`, `trip` (`scripts/db-migrate.ts`); demo roster in
+  `scripts/db-seed.ts` (Marco Reyes / Elena Cruz · S580 / Suburban — PLACEHOLDER).
+- The payment webhook records every PAID ride as a `trip` (`lib/trips.ts`
+  `upsertTrip`) — DB-first, idempotent on `external_id`, and NON-FATAL (a DB hiccup
+  never fails a booking that already reached GHL).
+- `POST /api/dispatch/assign` is the assignment webhook. Auth = its own
+  `DISPATCH_WEBHOOK_TOKEN` in the `x-dispatch-token` header, constant-time
+  compared (a SEPARATE secret from Xendit's — different caller, different trust
+  boundary). It resolves the driver by name against the roster, records the
+  assignment, and runs the clash query. Overlap = half-open interval intersection
+  (`start < other.end AND end > other.start`), so back-to-back rides are allowed.
+- On a clash it calls `flagPossibleDoubleBooking()` (`lib/ghl.ts`), which moves the
+  opportunity to the stage read from `config/ghl-fields.json`
+  (`stagePossibleDoubleBookingId`). That stage does NOT exist in GHL yet — creating
+  it + the alert-email workflow + the outbound assign webhook is **Stage A'**. Until
+  then the code detects and logs the clash and no-ops the flag with a loud warning.
+- The email is sent BY A GHL WORKFLOW on that stage — no email dependency, no cost,
+  keeps GHL central (decided 2026-07-24).
+- Verified by `npm run test:dispatch` (10 checks against the live DB: driver clash,
+  vehicle clash, back-to-back allowed, no self-clash, roster-miss, de-dupe, …).
 
 ## 11. Cancellation (customer-facing)
 A "Request Cancellation" button opens a contact popup — Email / WhatsApp / Call.
@@ -197,8 +220,11 @@ See `ROADMAP.md` for the staged plan. Current position:
 - ✅ Neon DB + owner-editable rates (with fallback)
 - ✅ Hardened auth + role-aware top bar + guarded admin rates editor
 - ✅ Round-trip booking · Request-Cancellation contact popup
-- ⏭ Zones · legal pages (pending demo discussion) · webhook DB-first rewrite ·
-  dispatch · GHL finalize + workflows · reporting · payment swap · hardening/handover
+- ✅ Dispatch (Stage E): silent trip DB · driver/vehicle double-booking detection ·
+  `/api/dispatch/assign` webhook · GHL flag-stage hook (stage created in Stage A')
+- ⏭ Zones · legal pages (pending demo discussion) · GHL finalize + the "Possible
+  Double Booking" stage + workflows (Stage A') · reporting · payment swap ·
+  hardening/handover
 
 ## 14. Out of scope (say it before the client assumes it)
 Marketing site/content · AI receptionist · extra lead channels · full driver
