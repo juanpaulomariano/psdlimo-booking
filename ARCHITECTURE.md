@@ -159,38 +159,53 @@ Quoted, Confirmed, Assigned, In Progress, Completed, Cancelled.
 - This reshape is done SURGICALLY, AFTER the DB + dispatch settle GHL's final
   shape — which is why the 12 workflows are built LAST, not next.
 
-## 10. Dispatch model (Stage E — GHL-central, DB-silent) — BUILT
-- Owner assigns a driver IN GHL. On assignment, a webhook fires → the DB checks
-  all trips for a driver/vehicle time clash → if clash, EMAIL the owner AND move
-  the opportunity to the **Possible Double Booking** stage. Warning-after, not a
-  hard block (GHL can't be prevented from assigning) — satisfies the contract's
-  double-booking requirement as automated detection + alert.
-- Trips stored SILENTLY in the DB (for the clash query + reporting) — never a
-  website dashboard the owner logs into.
-- Driver accept/reject + live statuses (En-Route/Arrived/On-Board) + a driver
-  portal are a FUTURE phase.
+## 10. Dispatch model (driver assignment in the ADMIN, with a HARD block) — BUILT
+**Redesigned 2026-07-25.** The owner assigns a driver to a confirmed booking IN
+THE WEBSITE ADMIN (not in GHL), and the system PREVENTS double-booking at the
+source rather than warning after the fact.
 
-**How it's implemented (2026-07-24):**
-- Tables `driver`, `vehicle`, `trip` (`scripts/db-migrate.ts`); demo roster in
-  `scripts/db-seed.ts` (Marco Reyes / Elena Cruz · S580 / Suburban — PLACEHOLDER).
+- **The rule: one driver = one trip per LA calendar day.** Assigning a driver who
+  already has a trip that day is REFUSED (the UI shows which booking blocks it).
+  This is a real block — possible because it happens in our own UI + API, where a
+  GHL-side flow could only warn (GHL can't veto a keystroke in its own field).
+- **"Per day" is deliberately stricter than "no time overlap"** — a same-day
+  second trip is refused even if the clock says it fits, because delays make
+  same-day doubles risky. The owner's explicit v1 choice.
+- **The admin is the source of truth; GHL mirrors it one-way.** On assign, the
+  driver name is written to the `Chauffeur Assigned` field and the opportunity
+  moves to the `Assigned` stage, so the owner still sees it in GHL.
+- **Why this replaced the earlier "assign-in-GHL, detect-overlap, tag+email" design:**
+  free-text names in GHL caused typo mismatches; GHL could only warn, not block;
+  and a flag tag went stale after the owner fixed the conflict. The admin model
+  removes all three problems. That old warn-path (the `/api/dispatch/assign`
+  webhook, the overlap engine, the `ops.double-booking` tag, and workflows
+  WF-03/WF-04) is RETIRED — WF-03/WF-04 to be deleted in the GHL UI.
+
+**How it's implemented:**
+- Tables `driver`, `vehicle`, `trip` (`scripts/db-migrate.ts`); demo roster seeded
+  (PLACEHOLDER) but the owner manages drivers in the admin.
 - The payment webhook records every PAID ride as a `trip` (`lib/trips.ts`
-  `upsertTrip`) — DB-first, idempotent on `external_id`, and NON-FATAL (a DB hiccup
-  never fails a booking that already reached GHL).
-- `POST /api/dispatch/assign` is the assignment webhook. Auth = its own
-  `DISPATCH_WEBHOOK_TOKEN` in the `x-dispatch-token` header, constant-time
-  compared (a SEPARATE secret from Xendit's — different caller, different trust
-  boundary). It resolves the driver by name against the roster, records the
-  assignment, and runs the clash query. Overlap = half-open interval intersection
-  (`start < other.end AND end > other.start`), so back-to-back rides are allowed.
-- On a clash it calls `flagPossibleDoubleBooking()` (`lib/ghl.ts`), which moves the
-  opportunity to the stage read from `config/ghl-fields.json`
-  (`stagePossibleDoubleBookingId`). That stage does NOT exist in GHL yet — creating
-  it + the alert-email workflow + the outbound assign webhook is **Stage A'**. Until
-  then the code detects and logs the clash and no-ops the flag with a loud warning.
-- The email is sent BY A GHL WORKFLOW on that stage — no email dependency, no cost,
-  keeps GHL central (decided 2026-07-24).
-- Verified by `npm run test:dispatch` (10 checks against the live DB: driver clash,
-  vehicle clash, back-to-back allowed, no self-clash, roster-miss, de-dupe, …).
+  `upsertTrip`) — idempotent on `external_id`, NON-FATAL (a DB hiccup never fails a
+  booking already in GHL).
+- **Admin API** (`/api/admin/dispatch*`, all `requireAdmin` + zod): `GET` returns
+  the bookings board + roster; `POST /assign` assigns/unassigns (409 on a block);
+  `POST /drivers` adds/edits/retires (soft-retire only — past trips keep their
+  driver).
+- **The block is atomic** (`assignDriverForDay`): a single `UPDATE` whose `WHERE`
+  excludes any OTHER same-LA-day trip for that driver, so the check and the write
+  can't race. The LA day is computed in SQL via `AT TIME ZONE 'America/Los_Angeles'`.
+- **UI:** `/admin` is a two-tab hub (Rates · Dispatch); `/admin/dispatch` has the
+  bookings list (a driver dropdown per row, inline block message) + a roster panel.
+- **GHL sync:** `syncDriverAssignmentToGHL()` (`lib/ghl.ts`) writes the name +
+  moves to `Assigned`; never throws (admin DB is authoritative).
+- Verified: `npm run test:dispatch` (17 checks against the live DB — the per-day
+  block, LA-day boundaries, roster CRUD, retired-driver rules, unassign-frees-day,
+  bookings join) + live GHL sync confirmed against a real opportunity.
+
+**Known limits (v1, disclose during the demo):** the rule is per-DAY, so it does
+not model travel time between rides on different days; ride duration is estimated;
+vehicle-level assignment is not yet surfaced (drivers only). Driver accept/reject,
+live statuses (En-Route/Arrived), and a driver portal are FUTURE phases.
 
 ## 11. Cancellation (customer-facing)
 A "Request Cancellation" button opens a contact popup — Email / WhatsApp / Call.
@@ -233,8 +248,9 @@ See `ROADMAP.md` for the staged plan. Current position:
 - ✅ Neon DB + owner-editable rates (with fallback)
 - ✅ Hardened auth + role-aware top bar + guarded admin rates editor
 - ✅ Round-trip booking · Request-Cancellation contact popup
-- ✅ Dispatch (Stage E): silent trip DB · driver/vehicle double-booking detection ·
-  `/api/dispatch/assign` webhook · GHL flag-stage hook (stage created in Stage A')
+- ✅ Dispatch: driver assignment in the ADMIN with a HARD one-trip-per-day block ·
+  roster management · one-way GHL sync (name + Assigned stage). Old GHL warn-path
+  retired (§10).
 - ⏭ Zones · legal pages (pending demo discussion) · GHL finalize + the "Possible
   Double Booking" stage + workflows (Stage A') · reporting · hardening/handover
 - ⏸ Payment swap — ON HOLD, not scheduled (no US payment method to build/test
