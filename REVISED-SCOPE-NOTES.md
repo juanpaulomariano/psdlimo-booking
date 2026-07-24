@@ -22,14 +22,30 @@ not by code. Only a specific subset needs new build.
    truth, $0, no sync.
 3. **Approach: brainstorm the full phased plan before building anything.**
 
-## COST — verified 2026-07-24 (this matters for the "no placeholders" clause)
-- "Vercel Postgres" as a bundled product NO LONGER EXISTS — Vercel retired it Dec
-  2024 and moved to **Neon** via the Marketplace. Do not write "Vercel Postgres".
-- **Neon free tier: 0.5 GB storage, 100 compute-hours/mo, scale-to-zero, no monthly
-  floor.** A limo company's data is kilobytes — ~0.01% of the limit. Genuinely $0.
-- Created under PSD Limo's business email → they own it (satisfies ownership §3).
-- **Net new recurring cost of the entire DB backbone: $0.** The only recurring cost
-  remains ~$20/mo Vercel Pro (already accepted; Hobby is non-commercial by licence).
+## COST — verified 2026-07-24 against neon.com/pricing (matters for "no placeholders")
+- "Vercel Postgres" as a bundled product NO LONGER EXISTS — retired Dec 2024 →
+  **Neon**. Do not write "Vercel Postgres".
+- **Neon Free:** 0.5 GB, 100 CU-hours/mo, scale-to-zero, $0. BUT hard cap — hitting
+  any monthly limit **SUSPENDS the database until next month** (does not bill). For a
+  DEMO that's fine; for a LIVE booking business a DB that can switch off is a real
+  risk (a mid-flow quote could fail). So production should NOT use Free.
+- **Neon Launch (recommended for production):** NO fixed monthly base fee. Pure
+  usage: compute $0.106/CU-hour, storage $0.35/GB-month. Invoices under $0.50 are
+  not collected. Removes the suspension cliff (bills instead of turning off).
+- **Estimated cost at our usage (Launch):**
+  - Storage: ~0.1 GB → ~$0.04/mo (negligible).
+  - Compute: scale-to-zero; a quote/save query runs in ms. At 65 bookings/mo,
+    usage falls UNDER the $0.50 collection threshold → **effectively $0/mo.**
+  - 10× growth → under $1/mo. 100× growth → a few $/mo.
+  - Absolute worst case (DB kept warm 24/7 by constant traffic, ~5-min idle
+    timeout never triggering) → ~$25/mo — only at genuinely high continuous
+    traffic, trivial against revenue at that scale.
+- **HONEST proposal line (do NOT say "$0 forever"):** "~$0-$1/month at current
+  volume on Neon Launch — no fixed fee, no suspension risk, scaling to only a few
+  dollars at 100× growth." Accuracy is what protects us under scrutiny.
+- Created under PSD's business email → they own it (satisfies ownership §3).
+- Other recurring: ~$20/mo Vercel Pro (accepted); Google Maps $0; GHL existing;
+  Stripe per-transaction. The DB backbone adds ~$0-$1/mo, not a meaningful cost.
 
 ## Why pricing CANNOT live in GHL (settled)
 - Pricing is a synchronous CALCULATION on every quote, not a record or an event.

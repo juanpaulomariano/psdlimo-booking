@@ -178,7 +178,14 @@ currently under a personal/Ally account, transfer or recreate under PSD's email 
 part of the relevant stage — never "promise to transfer later" (the contract
 explicitly forbids that).
 
-## Cost summary (for the proposal — all verified, no placeholders)
-Neon DB **$0** · Google Maps **$0** (3% of free tier) · Vercel Pro **~$20/mo** ·
-GHL existing subscription · Stripe per-transaction · SMS/A2P at go-live (needs
-client EIN). **The entire DB + dispatch + admin + reporting backbone adds $0/mo.**
+## Cost summary (for the proposal — all verified against source, no placeholders)
+- **Neon DB (Launch plan): ~$0–$1/mo** at current volume. No fixed fee; usage-metered
+  (compute $0.106/CU-hr, storage $0.35/GB-mo); invoices under $0.50 not collected;
+  scale-to-zero. Under $1/mo at 10× growth, a few $/mo at 100×. (Free tier exists but
+  SUSPENDS the DB on hitting a limit — unsafe for a live booking business, so Launch.)
+- **Google Maps: $0** (≈3% of the free tier).
+- **Vercel Pro: ~$20/mo** (Hobby is non-commercial by licence; the only fixed infra cost).
+- **GoHighLevel:** existing subscription. **Stripe:** per-transaction. **SMS/A2P:** at
+  go-live (needs client EIN).
+- **The entire DB + dispatch + admin + reporting backbone adds ~$0–$1/mo** — not a
+  meaningful cost. Honest line for the client, NOT "$0 forever".
