@@ -14,6 +14,7 @@
  */
 
 import Link from "next/link";
+import { CancellationButton } from "../components/CancellationButton";
 
 export default async function SuccessPage({
   searchParams,
@@ -65,13 +66,14 @@ export default async function SuccessPage({
           </div>
         )}
 
-        <div className="border-ink-700 mt-12 border-t pt-8">
+        <div className="border-ink-700 mt-12 flex items-center justify-between border-t pt-8">
           <Link
             href="/"
             className="text-paper-300 hover:text-brass-400 text-sm transition-colors"
           >
             ← Book another ride
           </Link>
+          <CancellationButton bookingRef={ref} />
         </div>
       </div>
     </main>
