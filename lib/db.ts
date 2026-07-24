@@ -15,9 +15,22 @@
  */
 
 import "server-only";
-import { neon } from "@neondatabase/serverless";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
-function connectionString(): string {
+/**
+ * LAZY connection. Created on first USE, never on import.
+ *
+ * This matters for the build: Next.js imports every route during compilation to
+ * analyze it. If the client were created at module top-level, importing any
+ * DB-touching route during a build where DATABASE_URL is not yet present would
+ * THROW and fail the whole deployment (this happened — see the git history).
+ * Creating it lazily means importing the module is always safe; it only reaches
+ * for the env when a query actually runs.
+ */
+let client: NeonQueryFunction<false, false> | null = null;
+
+function getClient(): NeonQueryFunction<false, false> {
+  if (client) return client;
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
@@ -25,15 +38,21 @@ function connectionString(): string {
         "(see .env.example) and to the Vercel project env.",
     );
   }
-  return url;
+  client = neon(url);
+  return client;
 }
 
 /**
- * The tagged-template query function. Lazily created so importing this module
- * never throws at load time if the env is briefly missing — it throws only when
- * a query is actually attempted, with a clear message.
+ * The tagged-template query function. A thin proxy so callers still write
+ * `sql\`SELECT …\`` while the underlying client is created lazily on first call.
+ * Values interpolated with ${} are parameters, never concatenated — injection-safe.
  */
-export const sql = neon(connectionString());
+function sqlProxy(...args: unknown[]) {
+  const fn = getClient() as unknown as (...a: unknown[]) => unknown;
+  return fn(...args);
+}
+
+export const sql = sqlProxy as unknown as NeonQueryFunction<false, false>;
 
 /** True when a DB is configured. Lets pricing fall back to code rates if not. */
 export function isDatabaseConfigured(): boolean {
