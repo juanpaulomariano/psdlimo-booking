@@ -111,35 +111,43 @@ throughout because we ADD beneath it, never replace.
 
 ---
 
-## STAGE E — Driver & ride management (contract Phase 4, Model 2)
-The core dispatch the contract insists is "not only assisted dispatch." Built in slices.
+## STAGE E — Driver & ride management (GHL-central, DB silent — see AUDIT-2 §G)
+CORRECTED 2026-07-24: the owner's cockpit is GHL, not a website dashboard. The DB
+works SILENTLY. No owner-facing dispatch UI on the website.
 
-- **E1** 🔨 **Driver + vehicle records** in DB (name, phone, vehicle, status,
-  availability). Admin CRUD. Owner-driver / partner-driver flag.
-- **E2** 🔨 **Assignment** — owner assigns a booking to a real driver+vehicle from
-  the admin (replaces the free-text chauffeur field with a real record).
-- **E3** 🔨 **Double-booking protection** — assignment blocked if driver OR vehicle
-  has an overlapping trip. One query; explicitly required.
-- **E4** 🔨 **Driver notification + one-tap accept/reject** — driver gets a link
-  (SMS when the number is live, email meanwhile), taps Accept/Decline on their
-  phone; no login. Timeout → owner alerted to reassign.
-- **E5** 🔨 **Trip statuses** (owner/dispatcher-driven now): Assigned · Accepted ·
-  Completed · Cancelled · No-Show, some automated. En-Route/Arrived/On-Board =
-  ⏸ future (need the driver portal — named as future phase).
-- **E6** 🔨 **Customer notification** when a driver is assigned/changed (via GHL).
+- **E1** 🔨 **Driver + vehicle records.** Owner manages these where they assign —
+  in GHL (a drivers list / custom field). The DB keeps a mirror ONLY so it can run
+  the clash check. No website driver-admin screen.
+- **E2** 🔨 **Assignment happens IN GHL** (dropdown/drag). Not on the website.
+- **E3** 🔨 **Silent double-booking check.** On assignment, GHL fires a webhook →
+  website queries the DB for a driver/vehicle time clash across all trips → **if
+  clash, EMAIL the owner** (via GHL). Warning-after, not a hard block (GHL can't be
+  prevented from assigning) — the honest trade for GHL-central assignment.
+- **E4** 🔨 **Trips stored silently in the DB** (for the clash query + reporting).
+  Never shown to the owner on the website — GHL is the trips view. Removes the
+  "two dashboards / redundant" problem.
+- **E5** 🔨 **Trip statuses + customer/driver notifications** live in GHL workflows
+  (Stage A′). Accept/reject and En-Route/Arrived/On-Board = ⏸ future (would need a
+  driver view — named as future phase).
 
-*Acceptance:* owner assigns a driver, can't double-book, driver accepts by tapping a link, customer is told.
+*Acceptance:* owner assigns a driver IN GHL; if it clashes, an email lands; trips
+are queryable in the DB for reporting; the owner never touches a website dashboard.
 
 ---
 
-## STAGE F — Make it app-like (PWA) + driver view
-- **F1** 🔨 **PWA shell** — manifest + icons + installable. Owner admin installs as
-  "PSD Admin"; installable + online (no offline-first).
-- **F2** 🔨 **Driver view** (`/driver`, role `driver`) — a driver logs in (Auth.js),
-  sees their assigned trips, accepts/rejects, marks Completed. Installable as
-  "PSD Driver". This is where accept/reject can move in-app (E4's link still works as fallback).
+## STAGE F — ⏸ DEFERRED / RECONSIDERED (PWA + driver view)
+CORRECTED 2026-07-24: with the owner's cockpit in GHL and no website operational
+dashboard, the ONLY owner-facing website screen is the rates/settings admin — which
+CAN be made installable (PWA) if wanted, but there is no big dashboard to appify.
+A DRIVER view/portal is explicitly a future phase (accept/reject in-app needs it).
+For now: no driver PWA. The rates admin can optionally be a PWA later; not core.
 
-*Acceptance:* owner and driver can install the app to their home screen and operate it on a phone.
+~~Old F1/F2 (driver PWA):~~ deferred.
+- **F1 (optional, later)** 🔨 Make the rates/settings admin installable as a PWA.
+- **F2** ⏸ Driver view/portal — future phase (with accept/reject + live statuses).
+
+*Acceptance (revised):* the rates/settings admin optionally installs to the home
+screen; there is no driver PWA in this scope (driver portal is a future phase).
 
 ---
 

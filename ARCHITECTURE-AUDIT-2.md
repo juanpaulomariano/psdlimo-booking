@@ -125,6 +125,46 @@ DB anyway.
 
 ---
 
+## G. CORRECTED OPERATIONAL MODEL (2026-07-24) — GHL is the ONLY cockpit
+
+The owner made the offer-defining call: **GHL is the single face of the operation.
+The DB is invisible backend plumbing the owner never logs into.** This overrides
+the earlier "website admin dashboard for dispatch" thinking — that risked a second
+cockpit that makes the owner ask "why do I need GHL?".
+
+The rule:
+> The owner sees ONLY GoHighLevel for operations. The database works silently. The
+> ONLY owner-facing website screen is the rates/settings editor — unavoidable
+> because GHL cannot do pricing math. Nobody logs into a website "dashboard".
+
+| Owner sees it in | What |
+|---|---|
+| **GHL (the cockpit)** | Trips, driver assignment, comms, pipeline, reviews, win-back — everything operational + relational |
+| **Website (unavoidable minimum)** | ONLY the rates/settings editor (pricing math can't live in GHL) |
+| **Nowhere (silent DB)** | Trip storage + double-booking check → surfaces ONLY as an EMAIL to the owner on conflict |
+
+**Driver assignment:** happens IN GHL (dropdown/drag). On assignment, a webhook
+fires to the website; the DB checks for a driver/vehicle time clash across all
+trips; IF clash → email alert to the owner. It is a WARNING-AFTER, not a hard
+block (GHL can't be physically prevented from assigning) — the honest trade for
+keeping assignment in GHL. Satisfies the contract's "double-booking protection"
+as automated detection + alert.
+
+**Trip storage:** the DB stores trips SILENTLY (needed to run the clash query and
+for reporting). Not shown to the owner anywhere — no second dashboard. This is
+what removes the "redundant / why two places" objection: nothing visible to BE
+redundant. The DB is infrastructure, like the payment processor or Google Maps —
+it just works, unseen.
+
+**Consequence for the roadmap:** there is NO owner-facing website "admin dashboard"
+beyond the rates/settings page. Stage E's dispatch UI is DELETED from the website;
+assignment + trips live in GHL; the DB's dispatch role is a silent webhook-driven
+double-booking check + email. The website's entire owner-facing surface = the
+rates/settings admin (behind the role-gated login) + the customer booking page.
+
+**The role-gated "Admin Dashboard" button** now leads to the rates/settings editor
+(the one owner screen), NOT a big operational dashboard. Simpler and on-message.
+
 ## F. THE ONE RISK TO WATCH (honest)
 Auth is the single new muscle (flagged in the capability audit). The mitigations
 hold: use Auth.js (never hand-roll), keep to two roles, JWT sessions, and — the
