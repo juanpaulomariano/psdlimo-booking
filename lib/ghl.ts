@@ -164,9 +164,6 @@ export async function upsertContact(input: UpsertContactInput): Promise<string> 
   const customFields = compact([
     field(fieldConfig.contact.preferred_vehicle, input.preferredVehicle),
     field(fieldConfig.contact.last_ride_date, toGHLDate(new Date().toISOString())),
-    // company_name is optional in ghl-fields.json until the field is created;
-    // field() no-ops on a missing id, so this is safe before Phase 8.7 lands.
-    field(fieldConfig.contact.company_name, input.company),
   ]);
 
   const response = (await ghlFetch("/contacts/upsert", {
@@ -178,6 +175,11 @@ export async function upsertContact(input: UpsertContactInput): Promise<string> 
       name: input.name,
       email: input.email,
       phone: input.phone,
+      // `companyName` is a GHL STANDARD contact field (not a custom field), so it
+      // is written on the body, not via customFields. Verified 2026-07-24 that
+      // the upsert accepts and stores it. Only sent when present, so a later
+      // personal booking by the same person does not blank an earlier company.
+      ...(input.company ? { companyName: input.company } : {}),
       tags: input.tags,
       ...(customFields.length > 0 ? { customFields } : {}),
     },
@@ -422,6 +424,31 @@ export function rideEndISO(booking: BookingMetadata): string {
  * rather than fail the whole booking. A booking with no appointment is
  * recoverable; a 500 that loses the booking is not.
  */
+/**
+ * The team member a new appointment is assigned to. GHL REQUIRES an
+ * assignedUserId on appointment creation. We read the calendar's own default
+ * (the `selected` team member) rather than hardcoding a user id, so this keeps
+ * working when the roster changes at go-live. Cached for the process lifetime.
+ */
+let cachedCalendarUserId: string | null | undefined;
+
+async function resolveCalendarUserId(calendarId: string): Promise<string | null> {
+  if (cachedCalendarUserId !== undefined) return cachedCalendarUserId;
+
+  try {
+    const response = (await ghlFetch(`/calendars/${calendarId}`)) as {
+      calendar?: { teamMembers?: Array<{ userId: string; selected?: boolean }> };
+    };
+    const members = response.calendar?.teamMembers ?? [];
+    const chosen = members.find((m) => m.selected) ?? members[0];
+    cachedCalendarUserId = chosen?.userId ?? null;
+  } catch (err) {
+    console.error(`[ghl] could not resolve calendar team member: ${err}`);
+    cachedCalendarUserId = null;
+  }
+  return cachedCalendarUserId;
+}
+
 export async function createRideAppointment(
   contactId: string,
   booking: BookingMetadata,
@@ -431,6 +458,15 @@ export async function createRideAppointment(
     console.warn(
       `[ghl] no calendarId configured — skipping appointment for ${booking.external_id}. ` +
         `Run npm run ghl:ids after creating the PSDLimo Rides calendar.`,
+    );
+    return null;
+  }
+
+  const assignedUserId = await resolveCalendarUserId(calendarId);
+  if (!assignedUserId) {
+    console.error(
+      `[ghl] no team member on calendar ${calendarId} — cannot create appointment for ` +
+        `${booking.external_id}. Assign a user to the PSDLimo Rides calendar.`,
     );
     return null;
   }
@@ -447,15 +483,17 @@ export async function createRideAppointment(
       calendarId,
       locationId,
       contactId,
+      assignedUserId,
       title: `${booking.contact_name} — ${route}`,
       startTime: booking.pickup_datetime,
       endTime: rideEndISO(booking),
-      // The booking reference + opportunity context, so the appointment stands
-      // on its own if someone opens it on the calendar.
       appointmentStatus: "confirmed",
       address: booking.pickup_location,
       notes: `Ref ${booking.external_id}\n${route}\n${booking.vehicle_class} · ${booking.passengers} pax`,
-      ignoreDateRange: true, // allow booking outside the calendar's availability rules
+      // A ride is booked for a specific time; it must NOT be rejected for
+      // falling outside the calendar's availability windows. Verified this is
+      // the parameter GHL honours (ignoreDateRange alone did not work).
+      ignoreFreeSlotValidation: true,
       toNotify: false, // the workflows own customer comms, not the calendar
     },
   })) as { id?: string; appointment?: { id?: string }; event?: { id?: string } };

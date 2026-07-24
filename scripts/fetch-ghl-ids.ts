@@ -58,7 +58,9 @@ const CONTACT_FIELDS: Record<string, { expectedOptions?: readonly string[] }> = 
   preferred_vehicle: { expectedOptions: VEHICLE_CLASS_IDS },
   lifetime_rides: {},
   last_ride_date: {},
-  company_name: {}, // Phase 8: corporate booking identification
+  // NOTE: company is GHL's STANDARD `companyName` contact field, NOT a custom
+  // field — it is written on the contact body in lib/ghl.ts, so it is not
+  // resolved here.
 };
 
 /** Calendar the webhook writes ride appointments to (Phase 8). */

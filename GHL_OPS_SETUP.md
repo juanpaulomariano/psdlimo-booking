@@ -12,14 +12,19 @@ if anything is missing or misnamed. That command is the check on this whole shee
 
 ---
 
-## Step 1 — Create the ride calendar
+## Step 1 — Create the ride calendar — DONE ✓
 
-**Calendars → Create Calendar → Simple / Service calendar.**
+Calendar `PSDLimo Rides` exists (id `mbiZTjEQc8qtnVYl413q`), with the owner set
+as its team member. Verified 2026-07-24 by creating a real appointment on it.
 
-- Name: **`PSDLimo Rides`** (exact — the resolver matches on this name)
-- No availability rules needed. The webhook writes appointments directly with
-  `ignoreDateRange`, so the calendar is just a container.
-- Save.
+Two things learned while wiring this up (recorded so they are not rediscovered):
+- A GHL appointment **requires an `assignedUserId`**. The code resolves the
+  calendar's own selected team member dynamically, so it keeps working when the
+  roster changes at go-live — no hardcoded user id.
+- Rides are booked for specific times and must not be rejected for falling
+  outside the calendar's availability windows. The parameter that bypasses this
+  is **`ignoreFreeSlotValidation: true`** (not `ignoreDateRange`, which did not
+  work). Already in the code.
 
 The webhook writes one appointment per paid booking here: start = pickup time,
 end = computed ride end. This is the time-precise anchor every timed workflow
@@ -42,15 +47,12 @@ Expected keys: `opportunity.chauffeur_assigned`, `opportunity.chauffeur_phone`,
 
 ---
 
-## Step 3 — Add 1 contact field
+## Step 3 — Company Name — NOTHING TO DO
 
-Same screen, **Object = Contact**.
-
-| Field name | Type | Notes |
-|---|---|---|
-| `Company Name` | Single Line Text | Written by the webhook when the customer fills the optional company field. Identifies corporate bookings. |
-
-Expected key: `contact.company_name`.
+`Company Name` is a GHL **standard** contact field, so it already exists and
+cannot be added as a custom field. Confirmed 2026-07-24. The webhook writes it as
+the standard `companyName` on the contact body (verified: stored and read back
+correctly), NOT via a custom field. No action needed here.
 
 ---
 
