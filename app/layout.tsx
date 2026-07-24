@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
+import { getSession } from "@/lib/auth";
+import { TopBar } from "./components/TopBar";
 
 // UI text. Optical sizing keeps small labels legible without going heavier.
 const inter = Inter({
@@ -26,17 +28,25 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Read the session server-side (from the httpOnly cookie) and pass a SAFE
+  // subset to the client bar — never the token, only name/email/role.
+  const session = await getSession();
+  const barSession = session
+    ? { name: session.name, email: session.email, role: session.role }
+    : null;
+
   return (
     <html
       lang="en"
       className={`${inter.variable} ${fraunces.variable} h-full antialiased`}
     >
       <body className="bg-ink-900 text-paper-100 flex min-h-full flex-col">
+        <TopBar session={barSession} />
         {children}
       </body>
     </html>
