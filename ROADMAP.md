@@ -60,8 +60,10 @@ nothing is left half-done.
 Thin slices. Each is independently shippable; the booking system keeps working
 throughout because we ADD beneath it, never replace.
 
-- **B1** 🔨👤 Provision **Neon** free DB under PSD's business email; connection string
-  into Vercel env. (I write the setup sheet.) *Verify: site reads a test query.*
+- **B1** 🔨👤 Provision **Neon** DB under PSD's business email; connection string into
+  Vercel env. (I write the setup sheet.) *Start on the **Free** plan for the demo;
+  flip to **Launch** at production — an in-place plan toggle in the Neon console, same
+  DB + connection string, no migration, no code change.* *Verify: site reads a test query.*
 - **B2** 🔨 Move rates from `config/rates.ts` into a DB table; pricing engine reads
   from DB at quote time with **last-good fallback** (a DB blip never breaks quoting).
   *This is the ONLY change to existing pricing — behaviour identical, source moves.*

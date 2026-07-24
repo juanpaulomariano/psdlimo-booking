@@ -43,6 +43,12 @@ not by code. Only a specific subset needs new build.
 - **HONEST proposal line (do NOT say "$0 forever"):** "~$0-$1/month at current
   volume on Neon Launch — no fixed fee, no suspension risk, scaling to only a few
   dollars at 100× growth." Accuracy is what protects us under scrutiny.
+- **DECIDED 2026-07-24 — Free for the demo, Launch for production.** The demo has no
+  live traffic, so the suspension cliff is irrelevant and Free costs $0. At deploy we
+  switch the SAME database to Launch for reliability (bills pennies instead of
+  suspending). Provision on Free now; upgrading to Launch is a plan toggle in the Neon
+  console — no data migration, no code change. Say exactly this to the client:
+  "demo runs on Neon's free tier; production moves to Launch (~$0-$1/mo)."
 - Created under PSD's business email → they own it (satisfies ownership §3).
 - Other recurring: ~$20/mo Vercel Pro (accepted); Google Maps $0; GHL existing;
   Stripe per-transaction. The DB backbone adds ~$0-$1/mo, not a meaningful cost.
