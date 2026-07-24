@@ -169,7 +169,36 @@ NEW tag needed: `service.roundtrip` (once round-trip ships).
 
 ---
 
-## 5. THE DECISIONS YOU OWN (numbered, so we can work through them)
+## 5a. DECISIONS MADE (2026-07-24)
+- **D-1 / D-8 — LOCKED: DB-first, one-way DB→GHL.** The webhook writes the booking
+  to the DB (system of record), then pushes only the communication-relevant subset
+  to GHL. GHL NEVER writes back to the DB. The webhook rewrite lands as a Stage-B
+  slice, not now.
+- **Sequencing — LOCKED: database BEFORE the workflows.** Stage A (12 workflows +
+  verification gate) moves to AFTER Stage B (DB) and Stage E (dispatch). Build the
+  workflows once, against the final GHL shape. This reverses the earlier plan.
+- **D-5 — LOCKED: 5B, simplify GHL stages to message-milestones.** GHL keeps only
+  the stages that trigger a message (proposed: New Inquiry, Quoted, Confirmed,
+  Completed, Cancelled). Fine-grained dispatch statuses (Assigned/Accepted/En-Route/
+  Arrived/On-Board/No-Show) live ONLY in the DB. Fewer moving parts; GHL stops
+  pretending to be a dispatch board. (Exact surviving stage list finalized at the
+  GHL-finalize step.)
+- **D-10 — LOCKED: surgical edit of the existing sandbox**, done AFTER the DB +
+  dispatch settle GHL's final shape. The current fields/tags are ~80% right; drop
+  the dead ones, adjust stages, add service.roundtrip. ghl:ids re-verifies.
+
+## 5b. DECISIONS STILL OPEN (settle at the relevant build step, not now)
+- **D-2** — exact GHL opportunity fields to drop (candidates: luggage_count, addons,
+  quoted_price, booking_source). Finalize at the webhook-rewrite slice.
+- **D-3** — chauffeur_assigned/phone become DB→GHL reference copies (confirm at dispatch).
+- **D-4** — lifetime_rides/last_ride_date: DB computes + pushes to GHL (leaning yes).
+- **D-6** — status.cancelled/noshow tags: keep as GHL analytics or drop (leaning keep).
+- **D-7** — keep GHL calendar appointment (workflows anchor on it) + trip in DB,
+  one-way DB→GHL (leaning yes — least disruption).
+- **D-9** — the few dispatch-tied workflows rebuild around a DB→GHL trigger; the
+  communication workflows are unaffected. Settle when building workflows (post-dispatch).
+
+## 5. THE FULL DECISION LIST (for reference)
 
 - **D-1 — Sync direction & timing.** Confirm: DB is written FIRST (system of record),
   then a one-way push DB→GHL for communications. GHL never writes back to the DB.

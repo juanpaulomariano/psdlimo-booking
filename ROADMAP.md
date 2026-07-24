@@ -42,17 +42,29 @@ GOHIGHLEVEL  (existing subscription)
 
 ---
 
-## STAGE A — Finish what's in flight (GHL communications)
-Close out the workflow layer we already started before pivoting to the DB, so
-nothing is left half-done.
+## ⚠️ SEQUENCING REVERSED (2026-07-24, per ARCHITECTURE-AUDIT.md)
+The GHL workflows (old Stage A) now come AFTER the database + dispatch, NOT next.
+Reason: several workflows are tied to GHL-native dispatch (drag card → Assigned),
+which moves to the DB. Building them before GHL's reduced role is settled = building
+some twice. New order: **B (DB) → webhook rewrite → E (dispatch) → then GHL finalize +
+workflows.** The old "Stage A" is now **Stage A′** below, moved to the end of the CRM work.
 
-- **A1** 🔨👤 Verification Gate (5 throwaway workflows prove GHL behaves). *In progress.*
-- **A2** 🔨👤 Build the 12 communication workflows (owner builds from build-sheets;
-  I verify data effects via API). Confirmation, reminders, dispatch notify, thank-you,
-  review request, win-back, high-value alert, cancellation.
-- **A3** 🔨👤 Email/SMS templates written + approved (contract §3 requires approval before launch).
+---
 
-*Acceptance:* a paid booking flows end-to-end and the right messages fire.
+## STAGE A′ (MOVED TO AFTER DISPATCH) — GHL finalize + communications
+Build ONCE, against the final GHL field/stage shape the DB+dispatch settle.
+
+- **A′0** 🔨👤 Surgical GHL edit (D-10): drop dead fields (D-2), simplify stages to
+  message-milestones (D-5: New Inquiry/Quoted/Confirmed/Completed/Cancelled), add
+  service.roundtrip. `ghl:ids` re-verifies.
+- **A′1** 🔨👤 Verification Gate (5 throwaway workflows prove GHL behaves).
+- **A′2** 🔨👤 Build the communication workflows against the final shape. Dispatch-tied
+  ones (assignment notify, chauffeur-assigned) trigger off a DB→GHL push (D-9), not a
+  card drag. Communication workflows (confirm/remind/thank-you/review/win-back) unaffected.
+- **A′3** 🔨👤 Email/SMS templates written + approved (contract §3).
+
+*Acceptance:* a paid booking flows end-to-end and the right messages fire, driven by
+the DB, not by GHL-native dispatch.
 
 ---
 
