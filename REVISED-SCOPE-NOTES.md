@@ -61,6 +61,29 @@ not by code. Only a specific subset needs new build.
 - Other recurring: ~$20/mo Vercel Pro (accepted); Google Maps $0; GHL existing;
   Stripe per-transaction. The DB backbone adds ~$0-$1/mo, not a meaningful cost.
 
+## DB PLATFORM — Neon, decided 2026-07-24 (Supabase considered and declined)
+Considered Supabase (bundles auth + storage) vs Neon (pure Postgres). Chose Neon:
+- **Cost:** Neon production (Launch) ~$0-1/mo usage-based; Supabase production
+  effectively needs Pro at $25/mo FLAT (Supabase Free PAUSES after 1 week idle —
+  bad for a demo AND a live business). ~$280/yr cheaper on Neon.
+- **The "turns off" worry, resolved:** Neon does NOT pause on inactivity. It
+  scale-to-zeros (sleeps between queries) and wakes in ~hundreds of ms on the next
+  query — invisible. It only month-suspends on blowing USAGE limits (100
+  compute-hrs), and at a few entries/month we use ~1%. On Launch even that risk is
+  gone (bills a penny instead). Neon is SAFER against "asleep when I demo it".
+- **The two things Supabase bundles, solved on Neon (both free + standard):**
+  1. AUTH → **Auth.js (NextAuth)** — the standard Next.js auth library; handles
+     hashing/sessions/tokens; points at our Neon app_user table. Supports the
+     contract's role-based access + 2FA. Not a workaround.
+  2. FILE STORAGE (driver license/insurance docs, Phase 4) → **Vercel Blob**
+     (already on Vercel, 1 GB free — ample for dozens of docs) or Cloudflare R2.
+     Store the file there, the LINK in Neon. This is how production apps do files
+     anyway — even Supabase stores files separately from the DB.
+- Everything else (pricing/drivers/dispatch/double-booking/trips/reporting) is pure
+  Postgres — exactly Neon's strength. No gap.
+- **Verdict: Neon delivers and maintains the FULL contract scope.** Auth.js is the
+  one piece to build carefully (in a thin tested slice, together).
+
 ## Why pricing CANNOT live in GHL (settled)
 - Pricing is a synchronous CALCULATION on every quote, not a record or an event.
 - Invariant #1: browser never dictates price; server recomputes. Rules must live
