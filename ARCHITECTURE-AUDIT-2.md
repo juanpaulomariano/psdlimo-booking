@@ -1,0 +1,134 @@
+# ARCHITECTURE AUDIT — SECOND PASS (double-audit)
+
+Requested re-audit after two new requirements landed:
+1. **Role-aware UI:** logged-in admins see an "Admin Dashboard" button at the top
+   of the site — no typing `/admin`. Regular users don't see it. Same site.
+2. **Demo strip:** for the demo, only the **booking system + login/register at the
+   top**. No homepage, no marketing sections. The booking page IS the demo site.
+
+Plus three answers that shape it:
+- **Guests can still book** — login optional; booking flow UNCHANGED.
+- **One pre-seeded admin account** — everyone else who registers is a regular user.
+- **The booking page is the whole demo site** — top bar adds login + (admins) the
+  dashboard button.
+
+This pass RE-CHECKS the first audit's conclusions against these, and states what
+moves. Ground truth pulled live: 4 pages (page/success/cancelled/layout), no auth
+anywhere yet, layout body is where a top bar goes. Neon CLI (neonctl) IS available
+but needs interactive auth — web-console + paste connection string is the path.
+
+---
+
+## A. WHAT THE NEW REQUIREMENTS CHANGE vs the first audit
+
+### A1. Auth arrives EARLIER and SMALLER than the roadmap had it
+- First audit put Auth.js in Stage C (owner admin), after the whole DB + dispatch.
+- **New reality: the DEMO needs auth NOW** — you can't show "admin sees a dashboard
+  button, user doesn't" without login working. So a MINIMAL auth (register/login +
+  one role flag + one pre-seeded admin) moves to the FRONT, right after the DB
+  exists to store users.
+- But it stays SMALL: two roles (user, admin), no dispatcher/CS yet, no 2FA yet
+  (that's a production hardening item, not a demo item). The library (Auth.js) still
+  does the scary parts.
+
+### A2. The "admin button" changes the UI shell, not the security model
+- Security is STILL server-side: the dashboard's data and pages are protected by
+  the session role on the server. The button is just UX — it renders when
+  `session.role === "admin"`.
+- IMPORTANT (correctness): a hidden button is NOT security. `/admin` (or wherever the
+  dashboard lives) must be guarded on the SERVER by the role, so a regular user who
+  guesses the URL is still blocked. The button removes the NEED to know the URL; the
+  server guard is what actually protects it. Both exist.
+
+### A3. Booking flow: UNCHANGED (guests still book)
+- This is the reassuring part. Because guests can still book without an account, the
+  entire existing booking → payment → webhook → GHL flow is UNTOUCHED. Auth sits
+  BESIDE it (a top bar), not IN FRONT of it. Lowest-risk possible integration.
+
+### A4. Demo page structure: a top bar + the existing booking page
+- No new marketing pages. `app/layout.tsx` gets a top bar (brand left, auth control
+  right). `app/page.tsx` (booking) stays the main content.
+- New pages needed for the demo: `/login`, `/register` (or a modal), and the admin
+  dashboard route (guarded). That's it.
+
+---
+
+## B. DOES THE FIRST AUDIT STILL HOLD? (double-check each conclusion)
+
+| First-audit conclusion | Still valid? | Note |
+|---|---|---|
+| DB-first, one-way DB→GHL | **YES** | Unaffected by auth/demo-strip. |
+| Build DB before the 12 workflows | **YES** | Still correct; the demo-strip makes it MORE true (workflows are even further off). |
+| Simplify GHL stages (5B) | **YES** | Unaffected. |
+| Surgical GHL edit, later | **YES** | Unaffected. |
+| GHL field drops (D-2) | **YES** | Unaffected. |
+| Auth in Stage C | **CHANGED** | Auth moves EARLIER (minimal version) for the demo. Full role-based access still finalizes later. |
+
+**Verdict: the first audit's architecture decisions all stand. The only change is
+TIMING — a minimal auth slice jumps forward to enable the demo.** Nothing is
+contradicted; one thing is resequenced.
+
+---
+
+## C. NEW DECISIONS THIS PASS SURFACES
+
+- **DD-1 — Users table + auth needs the DB.** Auth.js stores users somewhere. That's
+  the SAME Neon DB we're adding for rates. So the DB genuinely comes first — it now
+  serves BOTH rates AND users. Good — one foundation, two uses.
+- **DD-2 — Login/register: dedicated pages or a modal?** A modal on the booking page
+  is slicker for a single-page demo; dedicated `/login` `/register` pages are simpler
+  to build and more standard. (Leaning: simple pages for the demo; modal is polish.)
+- **DD-3 — Where does the admin dashboard live for the demo?** It can be near-empty
+  for now — a placeholder page proving the ROLE GATE works ("You're an admin, here's
+  where rates/drivers/reporting will go"), OR we start it with the rates admin (the
+  first real feature). Leaning: start it WITH the rates admin, so the button leads
+  somewhere real, not a stub.
+- **DD-4 — Session storage.** Auth.js supports JWT (stateless, no DB reads per
+  request) or database sessions. For a demo, JWT is simplest and fine. (Leaning JWT.)
+- **DD-5 — Does the customer's booking get linked to their account if logged in?**
+  Guests book anonymously; a logged-in customer COULD have the booking attached to
+  their user. For the DEMO this is optional polish — leaning: not now, keep booking
+  identical for everyone; attach-to-account is a later convenience.
+
+---
+
+## D. RESHAPED NEAR-TERM SEQUENCE (the concrete change)
+
+The roadmap's Stage B (DB) is still first, but it now carries the auth + admin-button
+demo scope folded in, because that's what you want to SEE next. Reordered demo path:
+
+1. **B1 — Provision Neon** (Free, demo). You: web console + paste connection string
+   (or `neonctl auth`). Me: everything after.
+2. **B2 — DB client + first table + rates moved to DB** with last-good fallback.
+   (Booking keeps working; source of numbers moves.) 
+3. **NEW B2.5 — Users table + Auth.js (minimal)**: register/login, `role` field,
+   ONE pre-seeded admin. JWT sessions.
+4. **NEW B2.6 — Top-bar UI**: brand + auth control on `app/layout.tsx`. Logged-out →
+   Login/Register. Logged-in → account menu. Admin → PLUS an "Admin Dashboard" button.
+5. **NEW B2.7 — Guarded admin dashboard route**: server-role-checked. Starts with the
+   rates admin (DD-3) so the button leads somewhere real.
+6. Then continue the roadmap: zones, round-trip, dispatch, then GHL finalize+workflows.
+
+**This gives you a demoable thing FAST:** register a normal user (no button), log in
+as the seeded admin (button appears → dashboard → edit a rate → next quote reflects
+it). That's a complete, impressive demo slice — and it's the natural first use of the
+DB anyway.
+
+---
+
+## E. WHAT STILL DOES NOT CHANGE (reassurance, re-confirmed)
+- The booking wizard, pricing math, Google Maps, payment boundary, webhook security,
+  route map, GHL tags/most fields, deploy — all intact.
+- Guests book exactly as today; auth sits beside the flow, never in front.
+- The DB is added BENEATH the working system; nothing is torn down.
+- All 57 tests still relevant; new tests added for auth-role gating + rates-from-DB.
+
+---
+
+## F. THE ONE RISK TO WATCH (honest)
+Auth is the single new muscle (flagged in the capability audit). The mitigations
+hold: use Auth.js (never hand-roll), keep to two roles, JWT sessions, and — the
+correctness point from A2 — **guard the dashboard on the SERVER by role, not just by
+hiding a button.** A hidden button with an unguarded route would be a security hole
+that looks fine in a demo and fails in an audit. We do both: button for UX, server
+guard for safety.
