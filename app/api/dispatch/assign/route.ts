@@ -39,28 +39,10 @@ import {
 } from "@/lib/trips";
 import { flagPossibleDoubleBooking, GHLError } from "@/lib/ghl";
 
-/**
- * Authenticate the GHL outbound webhook with a shared secret in the
- * `x-dispatch-token` header. Constant-time comparison — a plain `===` leaks the
- * token one byte at a time under timing analysis. Fails closed: a missing
- * server secret rejects everything rather than waving all callers through.
- *
- * This is a SEPARATE secret from XENDIT_CALLBACK_TOKEN by design — two different
- * callers (Xendit vs GHL), two different trust boundaries; compromising one must
- * not grant the other.
- */
-function verifyDispatchToken(headers: Headers): boolean {
-  const expected = process.env.DISPATCH_WEBHOOK_TOKEN;
-  if (!expected) {
-    console.error(
-      "[dispatch] DISPATCH_WEBHOOK_TOKEN is not set — rejecting all assign webhooks. " +
-        "Set it in the env and configure the GHL outbound webhook to send it as x-dispatch-token.",
-    );
-    return false;
-  }
-  const received = headers.get("x-dispatch-token");
-  if (!received) return false;
-
+/** Constant-time string compare that never throws on length mismatch (which
+ *  would itself leak length). A plain `===` short-circuits on the first
+ *  differing byte, and that timing is measurable enough to recover a secret. */
+function tokensMatch(received: string, expected: string): boolean {
   const a = Buffer.from(received);
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false; // length is not the secret
@@ -68,11 +50,43 @@ function verifyDispatchToken(headers: Headers): boolean {
 }
 
 /**
- * The assignment payload GHL sends. Kept minimal and tolerant: GHL webhook
- * bodies vary, so we accept the booking reference under a couple of likely keys
- * and the driver by name (the owner picks a name in GHL, not our internal id).
- * An optional vehicle id lets the same-car clash check run when the owner also
- * records a car.
+ * Authenticate the dispatch webhook with a shared secret.
+ *
+ * Accepts the token from EITHER the `x-dispatch-token` header OR a `?token=`
+ * query parameter. The header is preferred (query strings can appear in access
+ * logs), but GHL's FREE workflow webhook action cannot set a custom header or a
+ * dynamic body — only the URL accepts merge fields — so the query form is what
+ * makes the no-cost GHL path possible. The token is rotatable and the endpoint
+ * performs no destructive action, so query-string exposure is an acceptable
+ * trade for staying off GHL's premium webhook.
+ *
+ * SEPARATE secret from XENDIT_CALLBACK_TOKEN by design — two callers, two trust
+ * boundaries. Fails closed: a missing server secret rejects everything.
+ */
+function verifyDispatchToken(request: Request): boolean {
+  const expected = process.env.DISPATCH_WEBHOOK_TOKEN;
+  if (!expected) {
+    console.error(
+      "[dispatch] DISPATCH_WEBHOOK_TOKEN is not set — rejecting all assign webhooks. " +
+        "Set it in the env and pass it as the x-dispatch-token header or ?token= query param.",
+    );
+    return false;
+  }
+  const received =
+    request.headers.get("x-dispatch-token") ??
+    new URL(request.url).searchParams.get("token");
+  if (!received) return false;
+  return tokensMatch(received, expected);
+}
+
+/**
+ * The assignment payload. `external_id` is the booking reference; `driver_name`
+ * is what the owner typed in GHL (we resolve it to a driver id ourselves). An
+ * optional `vehicle_id` enables the same-car clash check.
+ *
+ * These can arrive as QUERY PARAMETERS (the GHL free-webhook path — everything
+ * rides in the URL) or as a JSON BODY (the test harness / a future premium
+ * webhook). readAssignInput() below merges the two, query taking precedence.
  */
 const assignSchema = z.object({
   external_id: z.string().trim().min(1, "external_id (booking reference) is required"),
@@ -80,10 +94,58 @@ const assignSchema = z.object({
   vehicle_id: z.string().trim().optional(),
 });
 
+/**
+ * Collect the assignment fields from wherever the caller put them.
+ *
+ * GHL's free workflow webhook (verified 2026-07-25 by capturing a real fire)
+ * sends a large contact/opportunity payload and nests our two fields under a
+ * `customData` object:
+ *   { contact_id, first_name, …, customData: { external_id, driver_name } }
+ * It also carries the opportunity's `contact_id` at the TOP LEVEL, which we keep
+ * so a clash can tag the exact contact even if our own trip record is stale.
+ *
+ * Precedence (later wins): JSON body top-level → body.customData → query string.
+ * The test harness posts a flat top-level body; a future premium webhook could
+ * send a flat body or query params. All paths resolve here so the handler below
+ * never has to care which caller it was.
+ */
+async function readAssignInput(
+  request: Request,
+): Promise<{ fields: Record<string, unknown>; contactId: string | null }> {
+  const q = new URL(request.url).searchParams;
+  const fromQuery: Record<string, unknown> = {};
+  for (const key of ["external_id", "driver_name", "vehicle_id"]) {
+    const v = q.get(key);
+    if (v !== null) fromQuery[key] = v;
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed = await request.json();
+    if (parsed && typeof parsed === "object") body = parsed as Record<string, unknown>;
+  } catch {
+    // No/non-JSON body — the query string carries the data.
+  }
+
+  const custom =
+    body.customData && typeof body.customData === "object"
+      ? (body.customData as Record<string, unknown>)
+      : {};
+
+  // GHL sends the opportunity's contact under `contact_id`.
+  const contactId =
+    typeof body.contact_id === "string" && body.contact_id.trim() ? body.contact_id.trim() : null;
+
+  return {
+    fields: { ...body, ...custom, ...fromQuery },
+    contactId,
+  };
+}
+
 export async function POST(request: Request) {
   /* ── 1. Authenticate FIRST ────────────────────────────────────────────── */
-  if (!verifyDispatchToken(request.headers)) {
-    console.warn("[dispatch] rejected: missing or invalid x-dispatch-token");
+  if (!verifyDispatchToken(request)) {
+    console.warn("[dispatch] rejected: missing or invalid dispatch token");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -97,15 +159,10 @@ export async function POST(request: Request) {
     );
   }
 
-  /* ── 2. Parse ─────────────────────────────────────────────────────────── */
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
+  /* ── 2. Parse (query string, JSON body, and/or GHL customData) ────────── */
+  const { fields, contactId: ghlContactId } = await readAssignInput(request);
 
-  const parsed = assignSchema.safeParse(body);
+  const parsed = assignSchema.safeParse(fields);
   if (!parsed.success) {
     console.error("[dispatch] invalid assign payload:", JSON.stringify(parsed.error.issues));
     return NextResponse.json(
@@ -164,8 +221,8 @@ export async function POST(request: Request) {
       });
     }
 
-    /* ── 5. CLASH — flag the opportunity in GHL ───────────────────────────── */
-    const flagged = await flagBooking(external_id, driver.name, clashes);
+    /* ── 5. CLASH — flag the contact in GHL ───────────────────────────────── */
+    const flagged = await flagBooking(external_id, driver.name, clashes, ghlContactId);
 
     return NextResponse.json({
       received: true,
@@ -194,16 +251,22 @@ export async function POST(request: Request) {
 
 /**
  * Flag a clashing booking in GHL by TAGGING its contact (not moving the stage —
- * see flagPossibleDoubleBooking for the why). The trip carries `ghl_contact_id`
- * (recorded by the payment webhook), so no GHL search is needed. A GHL workflow
- * watching for the tag emails the owner. Returns whether the flag stuck.
+ * see flagPossibleDoubleBooking for the why). A GHL workflow watching for the tag
+ * emails the owner. Returns whether the flag stuck.
+ *
+ * The contact id comes from the trip record first (written by the payment
+ * webhook), falling back to the `contact_id` GHL itself sent on the assign
+ * webhook — so a clash is still flagged even if the trip predates contact-id
+ * capture or was recorded without one.
  */
 async function flagBooking(
   externalId: string,
   driverName: string,
   clashes: Clash[],
+  ghlContactId: string | null,
 ): Promise<boolean> {
   const ids = await getTripGHLIds(externalId);
+  const contactId = ids?.contactId || ghlContactId;
 
   const conflictList = clashes
     .map((c) => `${c.external_id} (${c.customer_name}, ${c.reason})`)
@@ -212,11 +275,11 @@ async function flagBooking(
     `[dispatch] DOUBLE BOOKING: ${driverName} assigned to ${externalId} clashes with ${conflictList}`,
   );
 
-  if (!ids?.contactId) {
+  if (!contactId) {
     console.error(
-      `[dispatch] clash detected for ${externalId} but its trip has no ghl_contact_id — cannot flag.`,
+      `[dispatch] clash detected for ${externalId} but no contact id (trip nor payload) — cannot flag.`,
     );
     return false;
   }
-  return flagPossibleDoubleBooking(ids.contactId);
+  return flagPossibleDoubleBooking(contactId);
 }
