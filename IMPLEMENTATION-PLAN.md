@@ -74,10 +74,13 @@ on a workflow existing, so it can all land first.
   400, re-run the idempotency search; return 200 ONLY if THIS external_id is
   confirmed present, else 500. Never blanket-success.
 
-**8.6 — Manifest cron** *(code)*
-- `/api/cron/manifest` guarded by `CRON_SECRET`; `vercel.json` daily ~6 AM PT.
-  Searches today's rides, composes one owner email. Needs an email-send path —
-  see open question Q3.
+**8.6 — Manifest cron** — **SKIPPED (owner decision, 2026-07-24)**
+- The daily "here's your day" digest is deferred. It is a convenience, not
+  load-bearing: every ride still lands in GHL and on the calendar, and the owner
+  can see today's rides in the GHL calendar view directly. It is also the one
+  feature GHL cannot do natively (a workflow email merges one record, so it
+  cannot aggregate a list — it would need code to query+format plus a small
+  recurring cost). Re-add later if the owner wants a morning digest email.
 
 **8.7 — GHL foundation** *(YOU, in parallel — build-sheet: `GHL_OPS_SETUP.md`)*
 - Create calendar **PSDLimo Rides**.
