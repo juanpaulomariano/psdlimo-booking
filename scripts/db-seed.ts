@@ -18,6 +18,7 @@ import {
   MIN_HOURS,
   PER_HOUR,
   PER_MILE,
+  ROUND_TRIP_RETURN_DISCOUNT,
   SERVICE_FEE_PCT,
   VEHICLE_CLASSES,
 } from "@/config/rates";
@@ -45,6 +46,7 @@ async function seed() {
     ["min_hours", MIN_HOURS, "Minimum hours (hourly)", "rules"],
     ["service_fee_pct", SERVICE_FEE_PCT, "Service & fees (%)", "fees"],
     ["minimum_fare", MINIMUM_FARE, "Minimum fare (floor)", "rules"],
+    ["round_trip_return_discount", ROUND_TRIP_RETURN_DISCOUNT, "Round-trip return discount (%)", "rules"],
   ];
   for (const [key, value, label, category] of knobs) {
     await sql`

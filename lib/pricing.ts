@@ -89,6 +89,22 @@ export function calculatePrice(
         amount: distanceCharge,
       });
       fareBasis = rateCard.baseFare + distanceCharge;
+
+      // Round trip: add a return leg (same base + distance) at the return
+      // discount. The discount applies to the return leg only; the outbound is
+      // full price. Both legs still get the vehicle multiplier below.
+      if (ride.returnAt) {
+        const oneWay = rateCard.baseFare + distanceCharge;
+        const discount = Math.min(Math.max(rateCard.roundTripReturnDiscount, 0), 1);
+        const returnLeg = round2(oneWay * (1 - discount));
+        const pct = Math.round(discount * 100);
+        lines.push({
+          key: "return",
+          label: pct > 0 ? `Return trip (−${pct}% off return)` : "Return trip",
+          amount: returnLeg,
+        });
+        fareBasis += returnLeg;
+      }
       break;
     }
 

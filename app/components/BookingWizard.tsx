@@ -54,6 +54,9 @@ export function BookingWizard() {
   const [rideType, setRideType] = useState<RideType>("distance");
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
+  const [isRoundTrip, setIsRoundTrip] = useState(false);
+  const [returnDate, setReturnDate] = useState("");
+  const [returnTime, setReturnTime] = useState("");
   const [flatRouteId, setFlatRouteId] = useState<FlatRouteId>(FLAT_ROUTES[0].id);
   const [hours, setHours] = useState(MIN_HOURS);
   const [date, setDate] = useState("");
@@ -130,6 +133,19 @@ export function BookingWizard() {
     return VEHICLE_CLASSES.find((v) => v.capacity >= passengers)?.id ?? vehicleClass;
   }, [vehicleClass, passengers]);
 
+  /** Return pickup as an ISO string; null unless round-trip with a valid, later
+   *  return time. A return before the outbound is invalid and suppresses it. */
+  const returnAt = useMemo(() => {
+    if (rideType !== "distance" || !isRoundTrip || !returnDate || !returnTime) return null;
+    try {
+      const iso = laWallClockToISO(returnDate, returnTime);
+      if (pickupAt && new Date(iso).getTime() <= new Date(pickupAt).getTime()) return null;
+      return iso;
+    } catch {
+      return null;
+    }
+  }, [rideType, isRoundTrip, returnDate, returnTime, pickupAt]);
+
   /** Build the ride payload; null when incomplete, which suppresses quoting. */
   const ridePayload = useMemo(() => {
     if (!pickupAt || !leadTimeOk) return null;
@@ -145,7 +161,16 @@ export function BookingWizard() {
     switch (rideType) {
       case "distance":
         if (pickup.trim().length < 3 || dropoff.trim().length < 3) return null;
-        return { ...common, rideType: "distance" as const, pickup, dropoff };
+        // If round-trip is on but the return time is missing/invalid, hold the
+        // quote until it's valid rather than silently pricing a one-way.
+        if (isRoundTrip && !returnAt) return null;
+        return {
+          ...common,
+          rideType: "distance" as const,
+          pickup,
+          dropoff,
+          ...(returnAt ? { returnAt } : {}),
+        };
       case "hourly":
         if (pickup.trim().length < 3) return null;
         return { ...common, rideType: "hourly" as const, pickup, hours };
@@ -154,7 +179,7 @@ export function BookingWizard() {
     }
   }, [
     pickupAt, leadTimeOk, effectiveVehicleClass, passengers, luggage, addOns,
-    rideType, pickup, dropoff, hours, flatRouteId,
+    rideType, pickup, dropoff, hours, flatRouteId, isRoundTrip, returnAt,
   ]);
 
   const fetchQuote = useCallback(async (ride: NonNullable<typeof ridePayload>) => {
@@ -335,6 +360,67 @@ export function BookingWizard() {
                     onChange={setDropoff}
                     placeholder="Where are you heading?"
                   />
+                )}
+
+                {/* Round-trip toggle — distance rides only. */}
+                {rideType === "distance" && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setIsRoundTrip((v) => !v)}
+                      aria-pressed={isRoundTrip}
+                      className={`flex w-full items-center justify-between rounded-sm border px-5 py-3.5 text-left transition-colors ${
+                        isRoundTrip
+                          ? "border-brass-400 bg-brass-400/5"
+                          : "border-ink-600 hover:border-ink-500"
+                      }`}
+                    >
+                      <div>
+                        <div className="text-paper-100 text-sm">Round trip</div>
+                        <div className="text-paper-500 mt-0.5 text-xs">
+                          Same route back, at your chosen return time
+                        </div>
+                      </div>
+                      <span
+                        className={`border-ink-500 flex h-5 w-9 items-center rounded-full border px-0.5 transition-colors ${
+                          isRoundTrip ? "bg-brass-400/30" : "bg-ink-700"
+                        }`}
+                        aria-hidden
+                      >
+                        <span
+                          className={`h-3.5 w-3.5 rounded-full transition-transform ${
+                            isRoundTrip ? "bg-brass-400 translate-x-4" : "bg-paper-500"
+                          }`}
+                        />
+                      </span>
+                    </button>
+
+                    {isRoundTrip && (
+                      <div className="animate-fade-rise mt-4 grid gap-5 sm:grid-cols-2">
+                        <TextField
+                          label="Return date"
+                          required
+                          type="date"
+                          value={returnDate}
+                          min={date || minDate}
+                          onChange={(e) => setReturnDate(e.target.value)}
+                        />
+                        <TextField
+                          label="Return time"
+                          required
+                          type="time"
+                          value={returnTime}
+                          onChange={(e) => setReturnTime(e.target.value)}
+                          hint="San Francisco time"
+                          error={
+                            isRoundTrip && returnDate && returnTime && !returnAt
+                              ? "Return must be after the pickup time."
+                              : undefined
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}

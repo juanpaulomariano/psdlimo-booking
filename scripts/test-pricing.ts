@@ -445,9 +445,51 @@ check("rolls past midnight correctly", () => {
   assert.equal(addMinutesISO("2026-07-24T23:30:00-07:00", 60), "2026-07-25T00:30:00-07:00");
 });
 
+console.log("\nRound-trip pricing (Phase D)\n");
+
+check("a round trip adds a discounted return leg", () => {
+  // one-way business, 10 mi: base 45 + 45 = 90, ×1.0, +25% = 112.5 → 113
+  // round trip: outbound 90 + return 90×0.9=81 = 171, ×1.0, +25% = 213.75 → 214
+  const oneWay = rideDetailsSchema.parse({
+    ...baseRide, rideType: "distance",
+    pickup: "100 Main St, San Francisco, CA", dropoff: "200 Market St, San Francisco, CA",
+  } as unknown);
+  const rt = rideDetailsSchema.parse({
+    ...baseRide, rideType: "distance",
+    pickup: "100 Main St, San Francisco, CA", dropoff: "200 Market St, San Francisco, CA",
+    returnAt: "2026-07-22T17:00:00-07:00",
+  } as unknown);
+  const a = calculatePrice(oneWay, 10);
+  const b = calculatePrice(rt, 10);
+  assert.equal(a.total, 113);
+  assert.equal(b.total, 214);
+  assert.ok(b.lines.some((l) => l.key === "return"), "expected a return line");
+});
+
+check("the return leg is cheaper than the outbound (discount applied)", () => {
+  const rt = rideDetailsSchema.parse({
+    ...baseRide, rideType: "distance",
+    pickup: "100 Main St, San Francisco, CA", dropoff: "200 Market St, San Francisco, CA",
+    returnAt: "2026-07-22T17:00:00-07:00",
+  } as unknown);
+  const r = calculatePrice(rt, 10);
+  const amt = (key: string) => r.lines.find((l) => l.key === key)?.amount ?? 0;
+  const outbound = amt("base") + amt("distance");
+  const ret = amt("return");
+  assert.ok(ret > 0 && ret < outbound, `return ${ret} should be >0 and less than outbound ${outbound}`);
+});
+
+check("a distance ride WITHOUT returnAt has no return leg", () => {
+  const oneWay = rideDetailsSchema.parse({
+    ...baseRide, rideType: "distance",
+    pickup: "100 Main St, San Francisco, CA", dropoff: "200 Market St, San Francisco, CA",
+  } as unknown);
+  const r = calculatePrice(oneWay, 10);
+  assert.equal(r.lines.find((l) => l.key === "return"), undefined);
+});
+
 // ── Summary ────────────────────────────────────────────────────────────────
-// Must stay the LAST statement in this file — anything appended below it would
-// not be counted, and a failure there would still exit 0.
+// Must stay the LAST statement in this file.
 console.log("");
 if (failures.length > 0) {
   console.error(`FAILED — ${failures.length} of ${passed + failures.length} checks failed:`);

@@ -301,10 +301,13 @@ export async function createBookingOpportunity(
     }
   })();
 
+  const isRoundTrip = Boolean(booking.return_datetime);
   const route =
     booking.ride_type === "hourly"
       ? `${booking.pickup_location} (${booking.hours ?? "?"} hrs)`
-      : `${booking.pickup_location} → ${booking.dropoff_location}`;
+      : `${booking.pickup_location} ${isRoundTrip ? "⇄" : "→"} ${booking.dropoff_location}${
+          isRoundTrip ? " (round trip)" : ""
+        }`;
 
   const customFields = compact([
     field(opportunityFields.pickup_location, booking.pickup_location),

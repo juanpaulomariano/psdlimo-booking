@@ -153,6 +153,7 @@ export async function POST(request: Request) {
     pickup_location: pickupLocation,
     dropoff_location: dropoffLocation,
     pickup_datetime: ride.pickupAt,
+    return_datetime: ride.rideType === "distance" && ride.returnAt ? ride.returnAt : "",
     vehicle_class: ride.vehicleClass,
     passengers: ride.passengers,
     luggage: ride.luggage,

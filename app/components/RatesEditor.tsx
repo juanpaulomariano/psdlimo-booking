@@ -24,6 +24,7 @@ const KEY_KIND: Record<string, "money" | "pct" | "num"> = {
   per_hour: "money",
   minimum_fare: "money",
   service_fee_pct: "pct",
+  round_trip_return_discount: "pct",
   min_hours: "num",
 };
 

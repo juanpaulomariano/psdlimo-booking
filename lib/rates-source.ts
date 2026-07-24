@@ -59,6 +59,8 @@ async function buildFromDb(): Promise<RateCard> {
     minHours: cfg.get("min_hours") ?? CODE_RATE_CARD.minHours,
     serviceFeePct: cfg.get("service_fee_pct") ?? CODE_RATE_CARD.serviceFeePct,
     minimumFare: cfg.get("minimum_fare") ?? CODE_RATE_CARD.minimumFare,
+    roundTripReturnDiscount:
+      cfg.get("round_trip_return_discount") ?? CODE_RATE_CARD.roundTripReturnDiscount,
     vehicleMultipliers: vehicles.length
       ? Object.fromEntries(vehicles.map((v) => [v.id, { label: v.label, multiplier: num(v.multiplier) }]))
       : CODE_RATE_CARD.vehicleMultipliers,

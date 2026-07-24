@@ -52,12 +52,26 @@ const rideCommon = {
  * engine never has to defend against those combinations at runtime.
  */
 export const rideDetailsSchema = z.discriminatedUnion("rideType", [
-  z.object({
-    ...rideCommon,
-    rideType: z.literal("distance"),
-    pickup: addressSchema,
-    dropoff: addressSchema,
-  }),
+  z
+    .object({
+      ...rideCommon,
+      rideType: z.literal("distance"),
+      pickup: addressSchema,
+      dropoff: addressSchema,
+      /**
+       * When present, this is a ROUND TRIP: the same route back, with its own
+       * return pickup time. A round trip is modelled as a distance ride + a
+       * return, rather than a separate ride type, so it reuses all the distance
+       * logic and the union stays clean. `returnAt` must be after the outbound
+       * pickup — enforced here so BOTH quote and checkout reject a return in the
+       * past relative to pickup (the UI check alone is trivially bypassed).
+       */
+      returnAt: isoWithOffset.optional(),
+    })
+    .refine(
+      (r) => !r.returnAt || new Date(r.returnAt).getTime() > new Date(r.pickupAt).getTime(),
+      { message: "The return time must be after the pickup time.", path: ["returnAt"] },
+    ),
   z.object({
     ...rideCommon,
     rideType: z.literal("hourly"),
@@ -137,6 +151,8 @@ export const bookingMetadataSchema = z.object({
   pickup_location: z.string(),
   dropoff_location: z.string(),
   pickup_datetime: isoWithOffset,
+  /** Return pickup for a round trip; "" for a one-way. */
+  return_datetime: z.string(),
   vehicle_class: z.enum(VEHICLE_CLASS_IDS),
   passengers: z.coerce.number().int(),
   luggage: z.coerce.number().int(),

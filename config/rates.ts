@@ -26,6 +26,10 @@ export const MINIMUM_FARE = 95; // PLACEHOLDER
 /** Service & fees, applied to the post-multiplier subtotal. */
 export const SERVICE_FEE_PCT = 0.25; // PLACEHOLDER — 25%, matches current site's surcharge
 
+/** Round-trip: discount applied to the RETURN leg's fare (0.10 = 10% off the
+ *  return). The outbound leg is full price. Owner-editable. PLACEHOLDER. */
+export const ROUND_TRIP_RETURN_DISCOUNT = 0.1; // PLACEHOLDER
+
 /* ── Vehicle classes ────────────────────────────────────────────────────────
  * `capacity` gates the UI: a class is disabled when passengers exceed it.
  * ASSUMPTION FOR CLIENT TO CONFIRM: the multiplier applies to flat routes too,
@@ -198,6 +202,8 @@ export type RateCard = {
   minHours: number;
   serviceFeePct: number;
   minimumFare: number;
+  /** Fraction off the return leg of a round trip (0.10 = 10% off). */
+  roundTripReturnDiscount: number;
   /** id → { label, multiplier } for vehicle classes. */
   vehicleMultipliers: Record<string, { label: string; multiplier: number }>;
   /** id → { label, price } for add-ons. */
@@ -213,6 +219,7 @@ export const CODE_RATE_CARD: RateCard = {
   minHours: MIN_HOURS,
   serviceFeePct: SERVICE_FEE_PCT,
   minimumFare: MINIMUM_FARE,
+  roundTripReturnDiscount: ROUND_TRIP_RETURN_DISCOUNT,
   vehicleMultipliers: Object.fromEntries(
     VEHICLE_CLASSES.map((v) => [v.id, { label: v.label, multiplier: v.multiplier }]),
   ),
