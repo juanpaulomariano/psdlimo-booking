@@ -14,8 +14,11 @@ accurate.
 > resolved by `npm run ghl:ids`, verified 2026-07-24):
 > - Sub-account (location): `BhxPrWhgU4bdMXz6meYe`
 > - Pipeline **PSDLimo Bookings**: `Ves6KZpNw5PZdVOQRKWS`
-> - Stage **Confirmed**: `fb8d9242-d0dd-4c09-ace5-e7a4ea34f19b` (the ONLY stage that exists today)
+> - Stages (all 7 exist): New Inquiry · Quoted · **Confirmed** (`fb8d9242…`, where
+>   the webhook writes paid bookings) · **Assigned** (`021498e1…`) · In Progress ·
+>   **Completed** (`c6e15f34…`) · **Cancelled** (`520f0c7c…`)
 > - Calendar **PSDLimo Rides**: `mbiZTjEQc8qtnVYl413q`
+> - Double-booking flag: contact TAG `ops.double-booking` (no dedicated stage)
 > - The one manual field: **Chauffeur Assigned** (`opportunity.chauffeur_assigned`)
 > - Dispatch endpoint (already deployed): `POST https://psdlimo-booking.vercel.app/api/dispatch/assign`
 >   authenticated by header `x-dispatch-token: <DISPATCH_WEBHOOK_TOKEN>`
@@ -44,9 +47,10 @@ area, then the plain-English outcome.
 Example: `WF-01 Booking: Send confirmation`.
 
 ### Pipeline stages
-Plain Title Case, no prefix (stages are customer/owner-facing in the CRM board):
-`Confirmed` (exists) · `Possible Double Booking` (we create it) · `Completed`
-(optional, see §Checklist).
+Plain Title Case, no prefix (stages are customer/owner-facing in the CRM board).
+All 7 already exist — **none are created in this sheet**:
+`New Inquiry · Quoted · Confirmed · Assigned · In Progress · Completed · Cancelled`.
+A double booking is a TAG, not a stage.
 
 ### Tags
 Already established and **must not change** — lowercase, dot-separated namespaces:
@@ -58,8 +62,8 @@ new namespace:
 | New tag | Set by | Means |
 |---|---|---|
 | `lifecycle.reminder-sent` | WF-02 | the 24h reminder went out (prevents re-sends) |
-| `lifecycle.completed` | WF-04 | the ride was marked done |
-| `ops.double-booking` | WF-06 | a clash was flagged (mirror of the stage, for filtering) |
+| `lifecycle.completed` | WF-05 | the ride finished (its appointment ended) |
+| `ops.double-booking` | **our dispatch code** (not a workflow) | a driver/vehicle time clash was detected; WF-04 emails the owner on it |
 
 ### Trigger names (inside each workflow)
 `TRG: <what fires it>` — e.g. `TRG: Opportunity entered Confirmed`.
@@ -72,60 +76,55 @@ new namespace:
 
 ## THE CHECKLIST (do these in order)
 
+> **Reality check (verified live 2026-07-24):** the pipeline ALREADY has 7 stages —
+> `New Inquiry → Quoted → Confirmed → Assigned → In Progress → Completed →
+> Cancelled`. **No stages need creating.** A double booking is flagged with the
+> `ops.double-booking` TAG, not a stage, so there is no "Possible Double Booking"
+> stage. All 11 tags now exist (the 3 missing `service.*` were created). The
+> resolver already captured the real stage ids into `config/ghl-fields.json`.
+
 Setup (once):
-- [ ] **S1.** Create pipeline stage `Possible Double Booking` (after `Confirmed`)
-- [ ] **S2.** Create pipeline stage `Completed` (after `Possible Double Booking`, at the end) — WF-05/06 need it
-- [ ] **S3.** Create the four workflow folders (naming §0)
-- [ ] **S4.** Add sub-account custom value `Dispatch Webhook Token` (holds the secret; never inline it in a workflow)
-- [ ] **S5.** Run `npm run ghl:ids` and confirm it picks up `stagePossibleDoubleBookingId` and `stageCompletedId`
-- [ ] **S6.** Add the two new stage ids to the code's config read (small edit — I do this, noted in §After)
+- [ ] **S1.** Create the four workflow folders (naming §0)
+- [ ] **S2.** Add sub-account custom value `Dispatch Webhook Token` (holds the secret; never inline it in a workflow)
+
+That's the entire setup — the stages and tags are already in place, so we go
+straight to building workflows.
 
 Workflows (build each, test, then publish — recommended order):
 - [ ] **WF-01** Booking: Send confirmation
 - [ ] **WF-02** Booking: 24-hour reminder
 - [ ] **WF-03** Dispatch: Driver assigned → notify our system  *(the one that powers double-booking detection)*
-- [ ] **WF-04** Dispatch: Possible double booking → alert owner
+- [ ] **WF-04** Dispatch: Double booking detected → alert owner
 - [ ] **WF-05** Booking: Ride completed
 - [ ] **WF-06** Care: Post-ride review request
 
-Suggested order: build **WF-01 to WF-04** first and test them, then **WF-05/06**
-(which depend on the `Completed` stage from S2). All six are in scope.
+Suggested order: build **WF-01 to WF-04** first and test them, then **WF-05/06**.
+All six are in scope.
 
 ---
 
-## S1 — Create the `Possible Double Booking` stage
+## Stages & tags — ALREADY DONE (nothing to create)
 
-**What we'll do:** In **PSDLimo Bookings** pipeline (Settings → Pipelines), add a
-stage named exactly `Possible Double Booking`, positioned right after `Confirmed`.
-
-**What it's for:** The dispatch webhook moves an opportunity here the moment it
-detects a driver/vehicle time clash. It's the visible backstop so the owner sees
-a double booking on the board even if the alert email is missed. The code already
-tries to move opportunities here (`flagPossibleDoubleBooking()`); it currently
-no-ops because the stage doesn't exist yet. Creating it is what turns that on.
-
-No trigger/action — this is a pipeline setting, not a workflow.
+The pipeline's 7 stages and all 11 tags already exist (verified/created
+2026-07-24). There is deliberately **no** "Possible Double Booking" stage — a
+clash is a `ops.double-booking` TAG layered on top of whatever real stage the
+booking is in (Assigned, In Progress, …), so nothing about where the booking
+actually is gets destroyed. Skip straight to the setup below.
 
 ---
 
-## S2 — Create the `Completed` stage
+## S1 — Create the four workflow folders
 
-**What we'll do:** In the same **PSDLimo Bookings** pipeline, add a stage named
-exactly `Completed`, positioned last (after `Possible Double Booking`).
+**What we'll do:** Automation → Workflows → Folders (or the folder icon) → create:
+`PSD · Booking Lifecycle`, `PSD · Dispatch`, `PSD · Customer Care`,
+`PSD · Internal Alerts` (naming §0).
 
-**What it's for:** Marks a ride as finished. WF-05 moves an opportunity here when
-its appointment has ended, and WF-06 asks for a review off the back of it. Having
-it as a real stage keeps the board readable — the owner can see at a glance what's
-upcoming vs. done.
-
-Final stage order on the board: `Confirmed` → `Possible Double Booking` →
-`Completed`.
-
-No trigger/action — pipeline setting.
+**What it's for:** Keeps the six workflows organized by area so the account stays
+legible for whoever inherits it.
 
 ---
 
-## S4 — Store the dispatch token as a Custom Value
+## S2 — Store the dispatch token as a Custom Value
 
 **What we'll do:** Settings → Custom Values → Add. Name: `Dispatch Webhook Token`.
 Value: the `DISPATCH_WEBHOOK_TOKEN` string (same one set in Vercel). Reference it
@@ -204,9 +203,9 @@ from "owner typed a driver name in GHL" to our `/api/dispatch/assign` endpoint.
 
 **What it's for:** When the owner assigns a chauffeur, GHL calls our webhook with
 the booking reference + the driver name. Our code records the assignment and runs
-the clash check; on a clash it moves the opportunity to `Possible Double Booking`
-(which fires WF-04). GHL cannot itself compare times across bookings — that's why
-the check lives in our DB and this workflow just forwards the assignment.
+the clash check; on a clash it TAGS the contact `ops.double-booking` (which fires
+WF-04). GHL cannot itself compare times across bookings — that's why the check
+lives in our DB and this workflow just forwards the assignment.
 
 ### TRG: `Chauffeur Assigned` field updated
 - **Trigger type:** *Opportunity Changed* (a.k.a. "Custom Field Updated" on the
@@ -236,8 +235,12 @@ the check lives in our DB and this workflow just forwards the assignment.
     ```
     *(`vehicle_id` is optional and omitted — the owner assigns by driver name; the
     same-car check is available later if you start recording vehicles.)*
-- **No other action.** Our endpoint does the recording, the clash check, and (on a
-  clash) the stage move. GHL must not also move the stage here.
+- **ACT-2 (optional): Move opportunity to `Assigned` stage** — *Update
+  Opportunity* → Stage `Assigned`. Purely cosmetic (keeps the board tidy). Safe
+  because the clash flag is a TAG, not a stage — tagging never fights this move.
+  Skip it if you'd rather move cards manually.
+- **Our endpoint does the recording, the clash check, and (on a clash) the
+  contact tagging.** GHL must not try to detect clashes itself.
 
 > **Field-name accuracy note:** our endpoint validates the body with zod and
 > rejects anything else with **400**. The keys are exactly `external_id` and
@@ -247,39 +250,47 @@ the check lives in our DB and this workflow just forwards the assignment.
 
 ---
 
-# WF-04 — Dispatch: Possible double booking → alert owner
+# WF-04 — Dispatch: Double booking detected → alert owner
 
 **Folder:** `PSD · Internal Alerts`
 
-**What it's for:** Our endpoint has just moved a clashing booking into
-`Possible Double Booking`. This workflow emails the owner so a conflict is never
+**What it's for:** Our endpoint has just tagged a clashing booking's contact
+`ops.double-booking`. This workflow emails the owner so a conflict is never
 silent. This is the "email the owner" half of the double-booking safeguard — sent
 by GHL, which is why the system needs no email service of its own.
 
-### TRG: Opportunity entered `Possible Double Booking`
-- **Trigger type:** *Opportunity Status Changed*.
-- **Filters:**
-  - Pipeline **is** `PSDLimo Bookings`
-  - Stage **is** `Possible Double Booking`
-- **Why:** the stage move is done by our code the instant a clash is detected, so
-  "entered this stage" == "a double booking was just found".
+### TRG: Tag `ops.double-booking` added
+- **Trigger type:** *Contact Tag* → *Tag Added*.
+- **Filter:** tag **is** `ops.double-booking`.
+- **Why a tag, not a stage:** our code flags a clash by tagging the CONTACT (GHL
+  tags are contact-scoped), NOT by moving the opportunity — moving it would
+  destroy the record of the real stage (Assigned / In Progress / …). So "this tag
+  was just added" == "a double booking was just detected".
 
 ### Actions
-- **ACT-1: Add tag `ops.double-booking`** — *Add Tag*, so clashes are filterable
-  in search/reporting.
-- **ACT-2: Email the owner** — *Send Internal Notification* / *Send Email* to the
-  owner's address. Include: customer `{{contact.name}}`, reference
-  `{{opportunity.payment_ref_id}}`, pickup `{{opportunity.pickup_datetime}}`,
-  driver `{{opportunity.chauffeur_assigned}}`. Subject e.g.
-  `⚠ Possible double booking — {{opportunity.payment_ref_id}}`.
-- **ACT-3 (optional): SMS the owner** for same-day clashes.
+- **ACT-1: Email the owner** — *Send Internal Notification* / *Send Email* to the
+  owner's address. Include: customer `{{contact.name}}`, phone `{{contact.phone}}`,
+  driver `{{contact.first_name}}`… — note that per-booking fields
+  (`{{opportunity.*}}`) are only available if this workflow is opportunity-aware;
+  a Contact-Tag trigger is contact-scoped, so prefer contact merge fields here and
+  point the owner to the contact record for booking detail. Subject e.g.
+  `⚠ Possible double booking — {{contact.full_name}}`.
+- **ACT-2 (optional): SMS the owner** for urgency.
+
+> **Merge-field note:** because the trigger is a *contact* tag, opportunity merge
+> fields may not resolve in this workflow. Keep the email pointing to the contact
+> (name/phone) and let the owner open the contact to see the clashing bookings —
+> both trips are on the same contact record. If you want full booking detail in
+> the email, an alternative is to trigger WF-04 off the `Assigned` stage instead
+> and filter to contacts that have the `ops.double-booking` tag; tell me and I'll
+> spell that variant out.
 
 ---
 
 # WF-05 — Booking: Ride completed
 
 **Folder:** `PSD · Booking Lifecycle`
-**Prerequisite:** the `Completed` stage from **S2**.
+**Prerequisite:** the `Completed` stage — **already exists** in the pipeline.
 
 **What it's for:** Marks a ride done — moves the board to `Completed` and drops the
 `lifecycle.completed` tag that WF-06 keys off. Anchors on the appointment ending,
@@ -326,27 +337,26 @@ Chained off WF-05's tag so it only fires for genuinely completed rides.
 | Setting | Where | Value | Why |
 |---|---|---|---|
 | Workflow timezone | each workflow → Settings | **America/Los_Angeles** | time-relative waits (WF-02) must use SF time |
-| Re-entry | each workflow → Settings | **OFF** for WF-01/03/04; **ON** allowed for WF-02 (tag-guarded) | prevents duplicate confirmations/alerts |
+| Re-entry | each workflow → Settings | **OFF** for WF-01/03/04; **ON** allowed for WF-02 (tag-guarded) and WF-04 (a contact can clash more than once) | prevents duplicate confirmations |
 | Sender email/domain | Settings → Email Services | verified domain | so confirmations don't spam-foldered |
 
 ---
 
-## After the sheet — the one code change
+## The code side — ALREADY DONE (verified live 2026-07-24)
 
-Once **S1/S2** (both stages created) are done and `npm run ghl:ids` (**S5**) has
-run, the resolver needs to WRITE the new stage ids into `config/ghl-fields.json`
-as `stagePossibleDoubleBookingId` and `stageCompletedId`. Today the resolver only
-looks for the `Confirmed` stage, so I'll add `Possible Double Booking` and
-`Completed` to its expected-stages list (**S6**, a small edit to
-`scripts/fetch-ghl-ids.ts`). After that:
+No code change is pending for this sheet. The dispatch endpoint and the clash
+tagging already work against live GHL:
 
-- `flagPossibleDoubleBooking()` stops no-op-ing and actually moves the opportunity
-- a clash flips from `opportunityFlagged: false` → `true` with **zero** other
-  change
-- WF-04 fires and the owner gets the email
+- `flagPossibleDoubleBooking()` tags the contact `ops.double-booking` (no longer a
+  no-op). Proven: seeded two overlapping trips on a real test contact, hit the
+  deployed endpoint → `{clash:true, flagged:true}`, and the contact came back
+  tagged `["ops.double-booking"]`.
+- `npm run ghl:ids` already resolved the real stage ids (`stageAssignedId`,
+  `stageCompletedId`, `stageCancelledId`) into `config/ghl-fields.json`.
 
-That's the whole activation. Nothing about the booking, pricing, or dispatch code
-changes — only the GHL config catches up to what the code already does.
+So the ONLY remaining work is building the six workflows in the GHL UI (this
+sheet). Once WF-03 exists, the loop is closed: assign a driver → our endpoint runs
+the clash check → on a clash the contact is tagged → WF-04 emails the owner.
 
 ---
 
