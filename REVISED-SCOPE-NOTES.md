@@ -1,5 +1,8 @@
 # REVISED SCOPE — brainstorm notes (PSD Limo contract requirements, July 2026)
 
+> ⚠️ SUPERSEDED as the current spec by **ARCHITECTURE.md** (single source of truth).
+> Kept for its reasoning and the decision log; where it disagrees, ARCHITECTURE.md wins.
+
 Working notes for absorbing the client's "Revised Proposal & Contract Requirements"
 into the architecture. NOT the plan yet — the plan comes after this. Focus per the
 owner: **website + CRM booking system only.** AI assistant and extra channels are

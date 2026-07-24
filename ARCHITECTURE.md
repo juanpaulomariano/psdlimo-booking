@@ -1,202 +1,196 @@
-# ARCHITECTURE.md — PSDLimo Booking System (Demo)
+# ARCHITECTURE.md — PSD Limo System (current reference)
 
-End-to-end booking system: customer books a ride → live auto-price → pays via secure payment page → booking appears in GoHighLevel fully tagged and staged. This file is the source of truth for WHAT we build and WHY. `CLAUDE.md` governs HOW to build it.
+**This is the single source of truth for the architecture.** It supersedes the
+scattered planning docs (ROADMAP, REVISED-SCOPE-NOTES, ARCHITECTURE-AUDIT,
+ARCHITECTURE-AUDIT-2) — where any of those disagrees with this file, THIS WINS.
+Last reconciled with the live code + DB on 2026-07-24.
 
-**Stack:** Next.js (App Router, TypeScript) on Vercel (free, demo only) · GitHub auto-deploy · Google Routes API + Places (New) on user's free-tier Google Cloud · **Xendit Invoice API (test mode)** · GoHighLevel API v2 (sandbox sub-account). No database. No n8n. One repo, one deployment.
-
-**Payment provider note (read once, remember forever):** Xendit is the demo processor because the agency already has an account and deep Xendit expertise. At go-live, funds must settle to the client's own US account, which likely means a client-owned processor (e.g., Stripe US). Therefore ALL provider-specific code is isolated in `lib/payments.ts` behind a small interface — the future swap must touch that one file only.
-
----
-
-## 1. System flow
-
-```
-CUSTOMER (browser)
-  │ 1. fills booking form (Places (New) autocomplete, Bay Area bias)
-  ▼
-BOOKING UI — Next.js frontend
-  │ 2. POST /api/quote {rideDetails}
-  ▼
-QUOTE API (serverless)
-  │   Google Routes API computeRouteMatrix → miles + duration
-  │   pricing engine (config/rates.ts) → full breakdown
-  │ 3. returns {breakdown, total} → shown live to customer
-  ▼
-CUSTOMER confirms → 4. POST /api/checkout {rideDetails, contact}
-  ▼
-CHECKOUT API (serverless)
-  │   RE-COMPUTES price from raw rideDetails (never trusts client total)
-  │   generates external_id = "psdlimo-{timestamp}-{nanoid}"  ← booking reference + idempotency key
-  │   creates Xendit INVOICE (amount = server total, metadata = full booking payload,
-  │                           success_redirect_url = /success?ref=…, failure → /cancelled)
-  │   returns invoice_url
-  ▼
-XENDIT HOSTED PAYMENT PAGE — customer pays with Xendit test card
-  │ 5. payment succeeds → Xendit fires callback
-  ▼
-WEBHOOK API — /api/xendit-webhook
-  │   verifies x-callback-token header (constant-time compare vs env secret)
-  │   accepts only status PAID / SETTLED invoice callbacks
-  │   idempotency: GHL opportunity with payment_ref_id == external_id already? → 200, stop
-  │   reads booking payload from invoice metadata
-  │ 6. GHL API v2 (Private Integration token):
-  │      upsert Contact (email+phone) + contact-level fields + tags
-  │      create Opportunity in "PSDLimo Bookings" → stage Confirmed
-  │      write opportunity-level Ride Details custom fields (BY FIELD ID)
-  │   on GHL failure → return 500 → Xendit retries the callback
-  ▼
-CUSTOMER lands on /success with booking reference (external_id)
-OWNER sees the booking in GHL: contact, fields, tags, Confirmed — untouched by hands
-```
-
-**Three invariants (non-negotiable):**
-1. **Price is computed twice** — display quote and invoice amount both come from the server engine. The browser never dictates a price.
-2. **CRM writes happen only from the verified Xendit callback.** Paid ⇔ exists in GHL. Abandoned/expired invoice ⇒ no ghost record.
-3. **Webhook is idempotent** — duplicate callbacks cannot create duplicate opportunities (keyed on `external_id`, stored in opportunity field `payment_ref_id`).
+> History note: an earlier version of this file described a "no database" design.
+> That was correct for the original demo but is now superseded — the project took
+> a deliberate DB pivot (below). The old planning docs are kept for their
+> reasoning but are not the current spec.
 
 ---
 
-## 2. Repository layout
+## 1. What this is
+A booking + operations system for PSD Limo (SF Bay Area chauffeur service):
+customer books a ride on a custom website → live auto-priced → pays on a hosted
+page → the booking flows into GoHighLevel for customer communications. Owners can
+edit their own pricing through an admin area. The database silently backs
+operations (rates, users, and — later — drivers/trips/dispatch).
 
+**Live:** https://psdlimo-booking.vercel.app · **Repo:** github.com/juanpaulomariano/psdlimo-booking (private)
+
+## 2. The core principle (read once, remember)
+> **The database owns operational TRUTH. GoHighLevel is the customer-communication
+> and sales-pipeline layer. The owner's one cockpit for operations is GHL; their
+> one website screen is the rates/settings admin (because GHL can't do pricing
+> math). The DB is invisible infrastructure the owner never logs into.**
+
+This "GHL-central, DB-silent" split is deliberate — it keeps GHL (the recurring
+offer) as the star, avoids a second competing dashboard, and puts each capability
+where it belongs.
+
+## 3. Stack
+| Layer | Technology | Owned by (go-live) |
+|---|---|---|
+| Website | Next.js 16 (App Router, TS, Tailwind 4), Vercel | PSD Limo |
+| Database | **Neon Postgres** (Free for demo → Launch for prod, ~$0–1/mo) | PSD Limo (their business email) |
+| Auth | bcrypt + jose (signed-JWT session), NOT a heavy library | — |
+| Distance & addresses | Google Routes API `computeRouteMatrix` · Places (New) · Static Maps (display only) | PSD Limo |
+| Payments (demo) | Xendit Invoice API, test mode, PHP | — |
+| Payments (go-live) | Client-owned US processor (Stripe US); swap isolated to `lib/payments.ts` | PSD Limo |
+| CRM & comms | GoHighLevel sub-account | PSD Limo |
+| Glue | NONE — the site's own webhook writes to GHL REST (no n8n) | — |
+
+## 4. End-to-end flow (current)
 ```
-psdlimo-booking/
-├── app/
-│   ├── page.tsx                    # booking wizard (3 steps, single page)
-│   ├── success/page.tsx            # reads ?ref= booking reference
-│   ├── cancelled/page.tsx
-│   └── api/
-│       ├── quote/route.ts          # POST → price breakdown
-│       ├── checkout/route.ts       # POST → Xendit invoice, returns invoice_url
-│       └── xendit-webhook/route.ts # POST → verify token, idempotency, GHL push
-├── lib/
-│   ├── pricing.ts                  # engine: pure function (rideDetails, distance) → breakdown
-│   ├── maps.ts                     # Routes API computeRouteMatrix (server-only key)
-│   ├── payments.ts                 # PROVIDER BOUNDARY: createInvoice(), verifyCallback(), parseCallback()
-│   ├── ghl.ts                      # GHL v2 client: upsert, opportunity, tags, field-id map
-│   └── booking-schema.ts           # zod schemas shared by all routes
-├── config/
-│   ├── rates.ts                    # PLACEHOLDER RATE CARD — single file to swap later
-│   └── ghl-fields.json             # key → field-ID map, generated by npm run ghl:ids
-├── scripts/
-│   └── fetch-ghl-ids.ts            # pulls custom-field + pipeline + stage IDs from GHL
-└── .env.local                      # secrets, never committed
+CUSTOMER (guest — no login required to book)
+  → booking wizard → /api/quote (Routes API + pricing engine, rates from DB)
+  → /api/checkout (server RE-prices from DB rates · external_id minted · Xendit invoice)
+  → Xendit hosted page → /success
+
+XENDIT → callback → /api/xendit-webhook
+  → token verify → PAID/SETTLED only → FETCH invoice metadata (callback carries none)
+  → [current] upsert GHL contact + opportunity + fields + tags + calendar appointment
+  → [planned] ALSO write the booking to the DB (system of record); push only the
+    communication subset to GHL (one-way DB→GHL) — see §8 webhook rewrite
+
+ADMIN (logged in, role=admin)
+  → top-bar "Admin Dashboard" button → /admin (server-guarded)
+  → rates editor: edit pricing → save → next quote reflects it (cache invalidated)
+
+GHL → communication workflows (confirmation, reminders, thank-you, review, win-back)
 ```
 
----
-
-## 3. Booking wizard (customer-facing)
-
-**Step 1 — Ride details**
-- Ride type: **Distance** (A→B) · **Hourly** (min 2 hrs, hours stepper) · **Flat route** (dropdown of predefined pairs)
-- Pickup / drop-off: Places (New) Autocomplete, biased to SF Bay Area
-- Date + time picker — **America/Los_Angeles explicitly**; blocks past times; min lead time 2 hrs
-- Passengers (1–14), luggage (0–10)
-
-**Step 2 — Vehicle & live price**
-- Vehicle cards: Business ×1.00 · First ×1.45 · SUV/Van ×1.30 · Electric ×1.15 (capacity shown; classes exceeding passenger count disabled)
-- Selection complete → `/api/quote` → price breakdown rendered live: base, distance/hourly/flat, vehicle class, add-ons, 25% service & fees, total (USD)
-- Add-ons: Meet & Greet $25 · Child seat $25 · Extra stop $20 — toggles re-quote live
-
-**Step 3 — Contact & pay**
-- Name, email, phone, flight number (shown only when pickup/dropoff is an airport), special requests (**maxLength 400**)
-- Payment method selector: **Credit / Debit Card** (live — routes to Xendit's secure hosted payment page) · **PayPal** (visible, disabled — "coming soon") · **Cash to chauffeur** (visible, disabled — future option)
-- Confirm & Pay → redirect to Xendit invoice page → pay with test card → redirected back to `/success?ref={external_id}` with booking summary
-
-Quote-to-invoice consistency: the invoice is created only at Confirm & Pay from the freshest ride details. If the customer goes back and edits, the old invoice is simply abandoned (it expires; expired invoices never fire a PAID callback, so no ghost records) and a new one is created on the next confirm.
-
----
-
-## 4. Pricing engine
-
-`config/rates.ts` — ALL numbers are placeholders, clearly labeled. Structure mirrors the client's advertised pricing.
-
+## 5. Repository layout (actual, 2026-07-24)
 ```
-baseFare              $45         (distance rides)
-perMile               $4.50       (Routes API miles)
-perHour               $95/hr      (hourly, min 2)
-flatRoutes            SFO→Downtown SF $120 · OAK→Financial District $110 · SF→Napa $260
-vehicleMultiplier     business 1.00 · first 1.45 · suv-van 1.30 · electric 1.15
-addOns                meet-greet $25 · child-seat $25 · extra-stop $20
-serviceFeePct         25%         (matches current site's surcharge)
-minimumFare           $95
+app/
+  page.tsx                     3-step booking wizard (the demo site)
+  layout.tsx                   reads session → renders TopBar
+  login/ register/             auth pages (guests still book without these)
+  admin/page.tsx               SERVER-GUARDED rates editor (role=admin)
+  success/ cancelled/          post-payment pages
+  components/                  BookingWizard, PricePanel, RouteMap, AddressAutocomplete,
+                               TopBar, AuthForm, RatesEditor, ui
+  api/
+    quote/         POST → price breakdown (DB rates + Routes API)
+    checkout/      POST → Xendit invoice (server re-prices from DB)
+    xendit-webhook/ POST → verify, idempotency, GHL push (+ appointment)
+    route-map/     Static Maps proxy (display only)
+    auth/{register,login,logout}/   session auth
+    admin/rates/   GET/POST rates (admin-only, guarded)
+lib/
+  pricing.ts       pure engine: (ride, miles, rateCard) → breakdown
+  rates-source.ts  READ path: rate card from DB, cached, last-good/code fallback
+  rates-admin.ts   EDIT path: read/write rates for the admin, whitelisted writes
+  db.ts            Neon connection (LAZY — created on first query, never on import)
+  auth.ts          bcrypt + jose JWT, cookie, getSession, requireAdmin (server guard)
+  users.ts         user DB access (constant-time login, no enumeration)
+  auth-schema.ts / booking-schema.ts   zod schemas
+  maps.ts          Routes API (server-only) · payments.ts   PROVIDER BOUNDARY (Xendit)
+  ghl.ts           GHL v2 client · datetime.ts   LA timezone utils
+config/
+  rates.ts         PLACEHOLDER defaults + CODE_RATE_CARD + tag derivation
+  ghl-fields.json  generated key→ID map · map-style.ts
+scripts/
+  db-migrate.ts / db-seed.ts    schema + seed-from-code (re-run vs prod DB)
+  set-admin-password.ts · fetch-ghl-ids.ts · test-pricing.ts · test-payments.ts
 ```
 
-**Order:** (base + distance | hourly | flat) × vehicleMultiplier + addOns → +25% → max(minimumFare) → round to whole USD.
-**Labeled assumption in the config:** the vehicle multiplier applies to flat routes too (client to confirm before go-live).
+## 6. Database (Neon Postgres)
+Tables live now: `rate_config` (editable scalar knobs), `vehicle_class`,
+`add_on`, `app_user`. Planned: `driver`, `vehicle`, `trip` (Stage E).
 
-Distance source: **Google Routes API** `computeRouteMatrix`, driving, server-side only (classic Distance Matrix is legacy — may be unavailable to this new project). Browser gets a separate key restricted to Places (New) Autocomplete + HTTP-referrer locked (include `*.vercel.app` previews during the demo phase). Google Cloud: user's personal account, free tier — billing must be enabled (card on file) but monthly free credits cover demo volume.
+- **Seeded FROM `config/rates.ts`** so the DB starts an exact mirror of the code —
+  moving pricing to the DB changed the SOURCE of numbers, not the numbers.
+- **Resilient:** the pricing engine reads rates via `rates-source.ts` with a
+  three-level fallback (DB → last-good → code defaults). A DB outage NEVER breaks
+  a quote — verified with a dead connection string.
+- **Lazy connection** (`db.ts`): created on first query, never on import, so a
+  build without `DATABASE_URL` never fails (this bit us once; now fixed).
+- Demo DB = throwaway personal Neon (GitHub sign-in fine). Production DB = a fresh
+  Neon account under PSD Limo's business email (email sign-up, Launch). Not a
+  migration — the schema/seed scripts re-run against the client-owned account.
 
----
+## 7. Auth & roles
+- bcrypt (cost 12) password hashes; jose-signed JWT session in an httpOnly +
+  Secure(prod) + SameSite=Lax cookie. `AUTH_SECRET` ≥32 chars or signing fails.
+- Roles: `user` (default, self-register) and `admin` (seeded/console only —
+  public registration can NEVER self-elevate).
+- The "Admin Dashboard" button is UX; the `/admin` route + `/api/admin/*` are
+  guarded SERVER-SIDE by role. Verified: forged/tampered token rejected, no user
+  enumeration, SQL-injection safe, non-admin → 403.
+- Guests still book with NO account — auth sits beside the booking flow, never in
+  front of it.
 
-## 5. Payments — Xendit Invoice API, test mode
+## 8. The non-negotiable invariants
+1. **The browser never dictates a price.** `/api/checkout` re-prices from raw
+   details using DB rates; the checkout schema has no `total` field.
+2. **CRM writes happen only inside the verified payment callback.** Paid ⇔ in GHL.
+3. **Idempotent on `payment_ref_id`** (= Xendit `external_id`) across all of a
+   contact's opportunities.
+4. **All datetimes America/Los_Angeles** (IANA offsets). Time precision lives on
+   appointments + opportunity names, never GHL date fields (they truncate).
+5. **All payment-provider code in `lib/payments.ts` only.**
+6. **Custom fields written by ID from `config/ghl-fields.json`** (`npm run ghl:ids`
+   fails loudly on drift).
+7. **The pricing engine stays a PURE function** — rates are passed IN (a RateCard),
+   never fetched inside it.
+8. **Admin surfaces are guarded on the server by role**, not by hiding a button.
+9. **No automation depends on data that has no producer.**
 
-- `lib/payments.ts` exposes `createInvoice({amountUSD, externalId, metadata, redirects})`, `verifyCallback(headers)`, `parseCallback(body)`. NOTHING outside this file imports Xendit.
-- `/api/checkout`: validate with zod → re-price → create invoice with:
-  - `external_id` — our generated booking reference AND idempotency key
-  - `metadata` — the entire booking payload (this demo's "database"): pickup, dropoff, ISO datetime + timezone, rideType, hours, vehicleClass, passengers, luggage, flightNumber, addOns (csv), quoted breakdown (json string), specialRequests (server-truncated ≤ 400 chars), contact name/email/phone
-  - success/failure redirect URLs carrying `?ref={external_id}`
-- **Currency:** prices are USD. VERIFY in the Xendit dashboard that USD invoices are enabled on the account in test mode. If not, demo charges the PHP test equivalent while the UI displays USD — acceptable for a logic demo, but SAY IT to the client rather than let him discover it. Production processor will be client-owned regardless (see provider note at top).
-- Test payment: use Xendit's documented test card numbers from their test-mode docs (do not hardcode assumptions about which numbers succeed — check the dashboard docs at build time).
-- Callback endpoint + callback verification token are configured in the Xendit dashboard (Settings → Callbacks) pointing at the deployed `/api/xendit-webhook`.
+## 9. GoHighLevel — current vs planned role
+**Current (from the earlier demo build):** the webhook writes 18 opportunity
+fields + 4 contact fields + tags + a calendar appointment. Pipeline: New Inquiry,
+Quoted, Confirmed, Assigned, In Progress, Completed, Cancelled.
 
----
+**Planned reshape (decided this session — see ARCHITECTURE-AUDIT-2 for detail):**
+- **DB-first, one-way DB→GHL.** GHL never writes back. The webhook writes the
+  booking to the DB, then pushes only the COMMUNICATION subset to GHL.
+- **Drop redundant GHL fields** the DB now owns (reporting fields like
+  quoted_price, booking_source; likely luggage/addons). Keep reference copies the
+  MESSAGES render (pickup, dropoff, price, vehicle, etc.).
+- **Simplify stages to message-milestones** (Confirmed / Completed / Cancelled +
+  New Inquiry/Quoted for manual quotes) + a new **Possible Double Booking** flag
+  stage. Fine-grained dispatch statuses live in the DB only.
+- **Tags mostly survive** (segmentation is GHL's job).
+- This reshape is done SURGICALLY, AFTER the DB + dispatch settle GHL's final
+  shape — which is why the 12 workflows are built LAST, not next.
 
-## 6. GHL push (webhook handler)
+## 10. Dispatch model (Stage E — GHL-central, DB-silent)
+- Owner assigns a driver IN GHL. On assignment, a webhook fires → the DB checks
+  all trips for a driver/vehicle time clash → if clash, EMAIL the owner AND move
+  the opportunity to the **Possible Double Booking** stage. Warning-after, not a
+  hard block (GHL can't be prevented from assigning) — satisfies the contract's
+  double-booking requirement as automated detection + alert.
+- Trips stored SILENTLY in the DB (for the clash query + reporting) — never a
+  website dashboard the owner logs into.
+- Driver accept/reject + live statuses (En-Route/Arrived/On-Board) + a driver
+  portal are a FUTURE phase.
 
-Auth: Private Integration token (sandbox sub-account) with `contacts.write`, `opportunities.write`. All custom-field writes are **by field ID**, resolved once by `npm run ghl:ids` into `config/ghl-fields.json` — never by key at runtime (key-writes are unreliable across v2 endpoints; ID resolution also validates the sandbox setup at build time and fails loudly on any typo).
+## 11. Cancellation (customer-facing)
+A "Request Cancellation" button opens a contact popup — Email / WhatsApp / Call —
+that redirects (`mailto:` / `wa.me` / `tel:`). NOT an automated cancellation and
+NOT a new stage: cancellation touches refunds and belongs in a human conversation.
+Contact details come from editable settings.
 
-On a verified PAID/SETTLED invoice callback:
-1. Verify `x-callback-token` header (constant-time compare against `XENDIT_CALLBACK_TOKEN`).
-2. **Idempotency:** search opportunities for `payment_ref_id == external_id` → if found, return 200.
-3. Upsert contact by email+phone → name, email, phone + **contact-level** fields + tags `source.website`, `pay.card`, `pay.paid`, derived `service-*`.
-4. Create opportunity in pipeline `PSDLimo Bookings`, stage **Confirmed** (paid ⇒ skips New inquiry/Quoted by design), monetaryValue = amount, name `"{Name} — {date} {route}"`.
-5. Write **opportunity-level** Ride Details fields (see §7) including `payment_ref_id = external_id`.
-6. Return 200. Any GHL error → 500 → Xendit retries the callback automatically. NOTE: Xendit's retry window is shorter and less generous than some processors — if a callback exhausts retries, it can be re-sent manually from the Xendit dashboard (Callbacks log → resend). That manual resend is the demo-day recovery move; the idempotency key makes it always safe.
+## 12. Cost (verified, for the proposal — no placeholders)
+Neon **~$0–1/mo** (Launch, usage-based, no fixed fee) · Google Maps **$0** (~3% of
+free tier) · Vercel Pro **~$20/mo** (only fixed cost; Hobby is non-commercial) ·
+GHL existing subscription · Stripe per-transaction · SMS/A2P at go-live (needs
+client EIN). The DB + auth + admin backbone adds ~$0–1/mo.
 
-Service-tag derivation: flat airport route or airport string in pickup/dropoff → `service.airport`; rideType hourly → `service.hourly`; else `service.pointtopoint`.
+## 13. Build status & what's next
+See `ROADMAP.md` for the staged plan. Current position:
+- ✅ Booking, payments, webhook→GHL, appointments (Phases 0–8)
+- ✅ Neon DB + owner-editable rates (with fallback)
+- ✅ Hardened auth + role-aware top bar + guarded admin rates editor
+- ⏭ Zones · webhook DB-first rewrite · round-trip · dispatch · GHL finalize +
+  workflows · reporting · payment swap · hardening/handover
 
----
-
-## 7. GHL sandbox setup (owner checklist — must exist before ghl:ids runs)
-
-**Pipeline:** `PSDLimo Bookings`, minimum stage `Confirmed` (full 7-stage set from the build spec is fine).
-
-**Opportunity-level custom fields** (create with object = Opportunity; per-booking data lives here so repeat bookings never overwrite each other):
-`pickup_location` (text) · `dropoff_location` (text) · `pickup_datetime` (datetime) · `ride_type` (dropdown: distance/hourly/flat) · `vehicle_class` (dropdown: business/first/suv-van/electric) · `passenger_count` (number) · `luggage_count` (number) · `flight_number` (text) · `addons` (text) · `hours_booked` (number) · `quoted_price` (monetary) · `final_price` (monetary) · `booking_source` (dropdown) · `special_requests` (large text) · **`payment_ref_id` (text — idempotency key, stores the Xendit external_id)**
-
-**Contact-level custom fields:** `client_type` (dropdown) · `preferred_vehicle` (dropdown) · `lifetime_rides` (number) · `last_ride_date` (date)
-
-**Tags:** `source.website` · `service.airport` · `service.hourly` · `service.pointtopoint` · `pay.card` · `pay.paid`
-
-Then create the Private Integration (Settings → Private Integrations, scopes above) and run `npm run ghl:ids` — it writes `config/ghl-fields.json` and errors on any missing field.
-
----
-
-## 8. Environment variables
-
-| Var | Purpose |
-|---|---|
-| `GOOGLE_MAPS_SERVER_KEY` | Routes API, server only |
-| `NEXT_PUBLIC_MAPS_BROWSER_KEY` | Places (New) Autocomplete, referrer-locked |
-| `XENDIT_SECRET_KEY` | Xendit test-mode secret key |
-| `XENDIT_CALLBACK_TOKEN` | callback verification token from Xendit dashboard |
-| `NEXT_PUBLIC_BASE_URL` | deployed URL for redirect construction |
-| `GHL_PRIVATE_TOKEN` | Private Integration token |
-| `GHL_LOCATION_ID` | sandbox sub-account |
-| `GHL_PIPELINE_ID`, `GHL_STAGE_CONFIRMED_ID` | from `ghl:ids` |
-
----
-
-## 9. Deploy & demo
-
-- GitHub → Vercel (free tier) auto-deploy; PRs get preview URLs. Local end-to-end requires a public URL for Xendit callbacks — use the Vercel preview URL, or a tunnel (e.g., `ngrok http 3000` / `cloudflared tunnel`) registered as the callback URL in the Xendit dashboard during local dev.
-- **Hosting note:** Vercel free tier for the demo (15 leads/week is trivially within limits; the go-live constraint is the Hobby ToS being non-commercial, not capacity). Production go-live: Vercel Pro (~$20/mo) or Cloudflare Pages port — matches the owner deck's "$0–20/mo".
-- Demo script: SFO → Ritz-Carlton SF, tomorrow 9:00 AM, 2 pax → First Class → price appears with breakdown → toggle Meet & Greet → price updates → Confirm & Pay → Xendit secure page → test card → redirected to success + reference → **switch to GHL: contact + every field + tags + Confirmed opportunity, untouched by hands** → "test keys to a live client-owned processor is a contained swap in one file."
-
-## 10. Failure handling (client Q&A armor)
-
-Abandoned/expired invoice → no PAID callback → no CRM record. GHL down → 500 → Xendit retries; if exhausted, manual resend from dashboard (idempotency makes resend always safe). Tampered price → server recompute wins. Forged callback → x-callback-token rejected. Duplicate callback → `payment_ref_id` idempotency. Timezone → America/Los_Angeles everywhere, explicitly.
-
-## 11. Out of scope (say it before the client assumes it)
-
-Marketing site & content · feeder ingestion (blocked on their ride sample) · email/WhatsApp capture · AI receptionist · dispatch/reminder workflows (GHL-side, build spec Phases 1–2) · customer portal · live charges · embedded card fields (Xendit hosted page for the demo; embedded tokenization is a later enhancement or arrives free with the production processor swap).
+## 14. Out of scope (say it before the client assumes it)
+Marketing site/content · AI receptionist · extra lead channels · full driver
+portal + real-time statuses · offline-first PWA · native app · commission
+reporting · driver document-expiry alerts · feeder ingestion. Named as future
+phases in the proposal, not built now.

@@ -1,5 +1,10 @@
 # ARCHITECTURE AUDIT — SECOND PASS (double-audit)
 
+> ⚠️ SUPERSEDED as the current spec by **ARCHITECTURE.md** (single source of truth).
+> Its conclusions (GHL-central model, auth timing, double-booking flag,
+> cancellation popup) are folded into that file; kept for the reasoning and
+> decision log. Where it disagrees, ARCHITECTURE.md wins.
+
 Requested re-audit after two new requirements landed:
 1. **Role-aware UI:** logged-in admins see an "Admin Dashboard" button at the top
    of the site — no typing `/admin`. Regular users don't see it. Same site.

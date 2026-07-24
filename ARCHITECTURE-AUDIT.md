@@ -1,5 +1,9 @@
 # ARCHITECTURE AUDIT — after the DB pivot
 
+> ⚠️ SUPERSEDED as the current spec by **ARCHITECTURE.md** (single source of truth).
+> This audit's conclusions are folded into that file; kept for the field-by-field
+> reasoning and the decision log. Where it disagrees, ARCHITECTURE.md wins.
+
 Full audit of the current build against the new target architecture (website+DB
 as the operational backbone, GoHighLevel as the communications layer). Answers:
 what changes, and every decision the owner must make.

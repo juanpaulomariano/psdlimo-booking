@@ -1,5 +1,9 @@
 # PSD LIMO — REVISED ROADMAP
 
+> The staged BUILD PLAN. For the current ARCHITECTURE (the what/why), see
+> **ARCHITECTURE.md** — the single source of truth. This file is the ordered plan;
+> where the two disagree on design, ARCHITECTURE.md wins.
+
 The complete build plan after absorbing the client's July 2026 contract
 requirements. Focus: **website + CRM booking/dispatch system.** AI assistant and
 extra lead channels are deferred (named as future phases in the proposal).
