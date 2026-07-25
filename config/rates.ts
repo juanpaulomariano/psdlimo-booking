@@ -263,47 +263,56 @@ export type TagDerivationInput = {
 };
 
 /**
- * The complete internal (hyphenated) tag set for a booking. `source-website`,
- * `pay-card`, and `pay-paid` are always present — every website booking is a
- * paid card booking. Exactly one `service-*` is guaranteed (falling back to
- * `service-pointtopoint`); others stack on top.
+ * The complete internal (hyphenated) tag set for a booking. Mapped to dotted CRM
+ * tags in lib/ghl.ts (`ride-airport` → `ride.airport`).
+ *
+ * Namespaces are deliberately separated by CONCERN (cleanup 2026-07-25):
+ *   source.*   — where the booking came from        (source.website)
+ *   payment.*  — the payment OUTCOME                 (payment.paid)
+ *   method.*   — the payment METHOD                  (method.card)
+ *   ride.*     — the ride TYPE                       (ride.airport, ride.hourly…)
+ *   client.*   — an attribute of the CLIENT          (client.corporate)
+ *
+ * `source-website`, `payment-paid`, and `method-card` are always present — every
+ * website booking is a paid card booking. Exactly one `ride-*` is guaranteed
+ * (falling back to `ride-pointtopoint`); others stack on top.
  */
 export function deriveBookingTags(input: TagDerivationInput): string[] {
-  const tags = new Set<string>(["source-website", "pay-card", "pay-paid"]);
+  const tags = new Set<string>(["source-website", "payment-paid", "method-card"]);
 
   const isAirport =
     input.isAirportFlatRoute ||
     AIRPORT_ADDRESS_PATTERN.test(input.pickupLocation) ||
     AIRPORT_ADDRESS_PATTERN.test(input.dropoffLocation);
 
-  // Primary service classification. An airport hourly ride is still "airport";
+  // Primary ride classification. An airport hourly ride is still "airport";
   // order here decides the PRIMARY, but tags stack so it rarely matters.
-  if (isAirport) tags.add("service-airport");
-  if (input.rideType === "hourly") tags.add("service-hourly");
+  if (isAirport) tags.add("ride-airport");
+  if (input.rideType === "hourly") tags.add("ride-hourly");
 
   const isIntercity =
     (input.distanceMiles !== null && input.distanceMiles >= INTERCITY_MILES) ||
     FAR_CITY_PATTERN.test(input.dropoffLocation) ||
     FAR_CITY_PATTERN.test(input.pickupLocation);
-  if (isIntercity) tags.add("service-intercity");
+  if (isIntercity) tags.add("ride-intercity");
 
   if (
     WINE_COUNTRY_PATTERN.test(input.dropoffLocation) ||
     WINE_COUNTRY_PATTERN.test(input.pickupLocation)
   ) {
-    tags.add("service-winetour");
+    tags.add("ride-winetour");
   }
 
-  if (input.passengers >= GROUP_PASSENGERS) tags.add("service-group");
+  if (input.passengers >= GROUP_PASSENGERS) tags.add("ride-group");
 
   if (input.hasCompany) {
-    tags.add("service-corporate");
+    tags.add("ride-corporate");
     tags.add("client-corporate");
   }
 
-  // Guarantee at least one service-* tag.
-  const hasService = [...tags].some((t) => t.startsWith("service-"));
-  if (!hasService) tags.add("service-pointtopoint");
+  // Guarantee at least one ride-* tag.
+  const hasRide = [...tags].some((t) => t.startsWith("ride-"));
+  if (!hasRide) tags.add("ride-pointtopoint");
 
   return [...tags];
 }

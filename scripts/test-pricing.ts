@@ -370,40 +370,40 @@ const baseTags = {
   hasCompany: false,
 };
 
-check("every booking gets source-website, pay-card, pay-paid", () => {
+check("every booking gets source-website, payment-paid, method-card", () => {
   const t = deriveBookingTags(baseTags);
-  for (const req of ["source-website", "pay-card", "pay-paid"]) {
+  for (const req of ["source-website", "payment-paid", "method-card"]) {
     assert.ok(t.includes(req), `missing ${req}`);
   }
 });
 
-check("a plain local ride is service-pointtopoint", () => {
-  assert.ok(deriveBookingTags(baseTags).includes("service-pointtopoint"));
+check("a plain local ride is ride-pointtopoint", () => {
+  assert.ok(deriveBookingTags(baseTags).includes("ride-pointtopoint"));
 });
 
-check("an SFO pickup is tagged service-airport, not pointtopoint", () => {
+check("an SFO pickup is tagged ride-airport, not pointtopoint", () => {
   const t = deriveBookingTags({ ...baseTags, pickupLocation: "SFO International Terminal" });
-  assert.ok(t.includes("service-airport"));
-  assert.ok(!t.includes("service-pointtopoint"));
+  assert.ok(t.includes("ride-airport"));
+  assert.ok(!t.includes("ride-pointtopoint"));
 });
 
-check("a 60-mile ride is service-intercity", () => {
-  assert.ok(deriveBookingTags({ ...baseTags, distanceMiles: 60 }).includes("service-intercity"));
+check("a 60-mile ride is ride-intercity", () => {
+  assert.ok(deriveBookingTags({ ...baseTags, distanceMiles: 60 }).includes("ride-intercity"));
 });
 
-check("a Napa destination is service-winetour", () => {
+check("a Napa destination is ride-winetour", () => {
   assert.ok(
-    deriveBookingTags({ ...baseTags, dropoffLocation: "Napa, CA" }).includes("service-winetour"),
+    deriveBookingTags({ ...baseTags, dropoffLocation: "Napa, CA" }).includes("ride-winetour"),
   );
 });
 
-check("7+ passengers is service-group", () => {
-  assert.ok(deriveBookingTags({ ...baseTags, passengers: 8 }).includes("service-group"));
+check("7+ passengers is ride-group", () => {
+  assert.ok(deriveBookingTags({ ...baseTags, passengers: 8 }).includes("ride-group"));
 });
 
-check("a company adds service-corporate AND client-corporate", () => {
+check("a company adds ride-corporate AND client-corporate", () => {
   const t = deriveBookingTags({ ...baseTags, hasCompany: true });
-  assert.ok(t.includes("service-corporate"));
+  assert.ok(t.includes("ride-corporate"));
   assert.ok(t.includes("client-corporate"));
 });
 
@@ -414,15 +414,17 @@ check("tags stack — a corporate airport group ride carries all three", () => {
     passengers: 9,
     hasCompany: true,
   });
-  assert.ok(t.includes("service-airport"));
-  assert.ok(t.includes("service-group"));
-  assert.ok(t.includes("service-corporate"));
+  assert.ok(t.includes("ride-airport"));
+  assert.ok(t.includes("ride-group"));
+  assert.ok(t.includes("ride-corporate"));
 });
 
 check("hyphen→dot mapping only touches the namespace separator", () => {
-  // mirrors tagsForBooking(): service-pointtopoint → service.pointtopoint
+  // mirrors tagsForBooking(): ride-pointtopoint → ride.pointtopoint
   const toCrm = (t: string) => t.replace("-", ".");
-  assert.equal(toCrm("service-pointtopoint"), "service.pointtopoint");
+  assert.equal(toCrm("ride-pointtopoint"), "ride.pointtopoint");
+  assert.equal(toCrm("payment-paid"), "payment.paid");
+  assert.equal(toCrm("method-card"), "method.card");
   assert.equal(toCrm("client-corporate"), "client.corporate");
   assert.equal(toCrm("source-website"), "source.website");
 });

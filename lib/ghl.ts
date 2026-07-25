@@ -579,10 +579,10 @@ export async function createRideAppointment(
 /**
  * Tags for a paid booking.
  *
- * NOTE THE DOT NOTATION — the CRM uses `source.website`, not `source-website`.
+ * NOTE THE DOT NOTATION — the CRM uses `ride.airport`, not `ride-airport`.
  * The sandbox is the source of truth, and the internal tag vocabulary
  * (`tags_csv` in the metadata) is hyphenated, so the ONLY transform needed is
- * hyphen → dot on the FIRST separator: `service-pointtopoint` → `service.pointtopoint`.
+ * hyphen → dot on the FIRST separator: `ride-pointtopoint` → `ride.pointtopoint`.
  * (Only the namespace separator changes; `pointtopoint` keeps its shape.)
  *
  * Deriving the tags happened once, server-side at checkout (deriveBookingTags).

@@ -187,18 +187,20 @@ export const bookingMetadataSchema = z.object({
 
 export type BookingMetadata = z.infer<typeof bookingMetadataSchema>;
 
-/** Internal tag vocabulary — hyphenated. Mapped to dotted CRM tags in lib/ghl.ts. */
+/** Internal tag vocabulary — hyphenated. Mapped to dotted CRM tags in lib/ghl.ts.
+ *  Namespaces by concern: source / payment (outcome) / method / ride (type) /
+ *  client. See deriveBookingTags in config/rates.ts. */
 export const BOOKING_TAGS = [
   "source-website",
-  "service-airport",
-  "service-hourly",
-  "service-intercity",
-  "service-winetour",
-  "service-group",
-  "service-corporate",
-  "service-pointtopoint",
-  "pay-card",
-  "pay-paid",
+  "ride-airport",
+  "ride-hourly",
+  "ride-intercity",
+  "ride-winetour",
+  "ride-group",
+  "ride-corporate",
+  "ride-pointtopoint",
+  "method-card",
+  "payment-paid",
   "client-corporate",
 ] as const;
 

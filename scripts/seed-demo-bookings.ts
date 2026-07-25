@@ -55,7 +55,7 @@ function booking(o: {
     contact_name: o.name,
     contact_email: o.email,
     contact_phone: o.phone,
-    tags_csv: "source-website,pay-card,pay-paid,service-pointtopoint",
+    tags_csv: "source-website,payment-paid,method-card,ride-pointtopoint",
   };
 }
 
