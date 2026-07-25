@@ -322,8 +322,9 @@ by GHL, which is why the system needs no email service of its own.
 
 **Folder:** `PSD · Customer Care`
 
-**What it's for:** Ask a happy customer for a review a few hours after the ride.
-Chained off WF-05's tag so it only fires for genuinely completed rides.
+**What it's for:** The moment a ride is marked completed, thank the customer and
+ask for a review — while the experience is fresh. Chained off WF-05's tag so it
+only fires for genuinely completed rides.
 
 ### TRG: Tag `lifecycle.completed` added
 - **Trigger type:** *Contact Tag* → *Tag Added* → tag `lifecycle.completed`.
@@ -332,11 +333,10 @@ Chained off WF-05's tag so it only fires for genuinely completed rides.
   is decided, only WF-05 changes and WF-06 keeps working.
 
 ### Actions
-- **ACT-1: Wait 3 hours** — *Wait*. The ride has already ended (that's what set the
-  tag), so this is just a polite gap before asking for a review, not a guess at
-  when the ride finished.
-- **ACT-2: Email/SMS review request** with the review link, addressed to
-  `{{contact.name}}`, referencing `{{opportunity.pickup_datetime}}`.
+- **ACT-1: Email review request** — sent IMMEDIATELY, no wait (decided 2026-07-25).
+  A prompt "how was your ride?" the moment they step out reads as attentive and
+  premium; an arbitrary multi-hour delay reads as a mass-market automated nag.
+  Address `{{contact.first_name}}`, include the review link.
 
 ---
 
