@@ -309,39 +309,8 @@ export async function createBookingOpportunity(
           isRoundTrip ? " (round trip)" : ""
         }`;
 
-  const customFields = compact([
-    field(opportunityFields.pickup_location, booking.pickup_location),
-    field(opportunityFields.dropoff_location, booking.dropoff_location),
-    // GHL DATE fields TRUNCATE the time, so the date field carries the date only.
-    field(opportunityFields.pickup_datetime, toGHLDate(booking.pickup_datetime)),
-    // …and a TEXT field carries the full LA date+time ("Jul 27, 9:39 PM PDT"),
-    // which is what customer emails and the CRM should actually show. Without
-    // this the pickup time is lost to everything except the opportunity name.
-    field(opportunityFields.pickup_datetime_text, formatPickupShort(booking.pickup_datetime)),
-    field(opportunityFields.ride_type, booking.ride_type),
-    // Write the human LABEL ("Business Class"), not the internal id ("business"),
-    // so it reads correctly in emails and the CRM — never a raw id leaking out.
-    field(opportunityFields.vehicle_class, vehicleLabel),
-    field(opportunityFields.passenger_count, booking.passengers),
-    field(opportunityFields.luggage_count, booking.luggage),
-    field(opportunityFields.flight_number, booking.flight_number),
-    field(opportunityFields.addons, booking.addons),
-    // Only hourly rides have hours. Xendit returns absent numeric metadata as
-    // "", which coerces to 0 — and "Hours Booked: 0" on a point-to-point ride
-    // looks like a bug to anyone reading the CRM.
-    field(
-      opportunityFields.hours_booked,
-      booking.ride_type === "hourly" && booking.hours ? booking.hours : null,
-    ),
-    // Both prices are the USD figure. The invoice may have been denominated in
-    // PHP, but the CRM records the business currency — never pesos.
-    field(opportunityFields.quoted_price, booking.quoted_total),
-    field(opportunityFields.final_price, booking.quoted_total),
-    field(opportunityFields.booking_source, "website"),
-    field(opportunityFields.special_requests, booking.special_requests),
-    // The idempotency key. Everything above is data; this one is a guarantee.
-    field(opportunityFields.payment_ref_id, booking.external_id),
-  ]);
+  const customFields = bookingOpportunityFields(booking, vehicleLabel);
+  const opportunityName = `${booking.contact_name} — ${formatPickupShort(booking.pickup_datetime)} — ${route}`;
 
   const response = (await ghlFetch("/opportunities/", {
     method: "POST",
@@ -350,7 +319,7 @@ export async function createBookingOpportunity(
       locationId,
       contactId,
       pipelineStageId: fieldConfig.stageConfirmedId,
-      name: `${booking.contact_name} — ${formatPickupShort(booking.pickup_datetime)} — ${route}`,
+      name: opportunityName,
       status: "open",
       monetaryValue: booking.quoted_total,
       customFields,
@@ -368,6 +337,77 @@ export async function createBookingOpportunity(
   );
 
   return opportunityId;
+}
+
+/** The full custom-field set for a paid booking — shared by CREATE (a new
+ *  opportunity) and PROMOTE (an existing quote lead moving to Confirmed). */
+function bookingOpportunityFields(booking: BookingMetadata, vehicleLabel: string) {
+  const f = fieldConfig.opportunity;
+  return compact([
+    field(f.pickup_location, booking.pickup_location),
+    field(f.dropoff_location, booking.dropoff_location),
+    // GHL DATE fields TRUNCATE the time, so the date field carries the date only.
+    field(f.pickup_datetime, toGHLDate(booking.pickup_datetime)),
+    // …and a TEXT field carries the full LA date+time ("Jul 27, 9:39 PM PDT").
+    field(f.pickup_datetime_text, formatPickupShort(booking.pickup_datetime)),
+    field(f.ride_type, booking.ride_type),
+    // The human LABEL ("Business Class"), never the internal id.
+    field(f.vehicle_class, vehicleLabel),
+    field(f.passenger_count, booking.passengers),
+    field(f.luggage_count, booking.luggage),
+    field(f.flight_number, booking.flight_number),
+    field(f.addons, booking.addons),
+    field(f.hours_booked, booking.ride_type === "hourly" && booking.hours ? booking.hours : null),
+    // USD figure — the CRM records business currency, never pesos.
+    field(f.quoted_price, booking.quoted_total),
+    field(f.final_price, booking.quoted_total),
+    field(f.booking_source, "website"),
+    field(f.special_requests, booking.special_requests),
+    // The idempotency key.
+    field(f.payment_ref_id, booking.external_id),
+  ]);
+}
+
+/**
+ * PROMOTE an EXISTING opportunity (a priced quote lead sitting in New Inquiry) to
+ * Confirmed when its payment arrives — moving it and filling in the booking
+ * fields, rather than creating a duplicate. This is the fix for the quote flow:
+ * the quote opportunity is stamped with payment_ref_id at pricing time, so the
+ * webhook's idempotency search FINDS it; this then turns it into the confirmed
+ * booking in place.
+ */
+async function promoteToConfirmed(opportunityId: string, booking: BookingMetadata): Promise<void> {
+  const vehicleLabel = (() => {
+    try {
+      return getVehicleClass(booking.vehicle_class).label;
+    } catch {
+      return booking.vehicle_class;
+    }
+  })();
+  const isRoundTrip = Boolean(booking.return_datetime);
+  const route =
+    booking.ride_type === "hourly"
+      ? `${booking.pickup_location} (${booking.hours ?? "?"} hrs)`
+      : `${booking.pickup_location} ${isRoundTrip ? "⇄" : "→"} ${booking.dropoff_location}`;
+
+  await ghlFetch(`/opportunities/${opportunityId}`, {
+    method: "PUT",
+    body: {
+      pipelineStageId: fieldConfig.stageConfirmedId,
+      name: `${booking.contact_name} — ${formatPickupShort(booking.pickup_datetime)} — ${route}`,
+      monetaryValue: booking.quoted_total,
+      customFields: bookingOpportunityFields(booking, vehicleLabel),
+    },
+  });
+  console.log(`[ghl] promoted quote opportunity ${opportunityId} → Confirmed ($${booking.quoted_total})`);
+}
+
+/** Read the stage id of an opportunity (to decide promote vs. skip). */
+async function readOpportunityStage(opportunityId: string): Promise<string | null> {
+  const r = (await ghlFetch(`/opportunities/${opportunityId}`)) as {
+    opportunity?: { pipelineStageId?: string };
+  };
+  return r.opportunity?.pipelineStageId ?? null;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -532,20 +572,33 @@ export async function listQuoteLeads(): Promise<QuoteLead[]> {
 
 /**
  * After the owner prices a quote and the invoice is created, record the outcome
- * on the opportunity: store the payment link, set the monetary value, and tag it
- * `lead.quoted` so a GHL workflow (WF-08) can email the customer the link and the
- * owner can filter "quoted, awaiting payment". Never throws in a way that loses
- * the invoice — the caller already has the link.
+ * on the opportunity: store the payment link, set the monetary value, STAMP the
+ * payment reference (so the webhook finds THIS opportunity and promotes it rather
+ * than creating a duplicate), and tag it `lead.quoted` so a GHL workflow (WF-08)
+ * emails the customer the link. Never throws in a way that loses the invoice.
+ *
+ * @param externalId the invoice reference — written to the opportunity's
+ *   payment_ref_id so the payment webhook's idempotency search matches this
+ *   quote lead and MOVES it to Confirmed instead of creating a new opportunity.
  */
 export async function attachQuoteInvoice(input: {
   opportunityId: string;
   contactId: string;
   invoiceUrl: string;
   amount: number;
+  externalId: string;
 }): Promise<void> {
   const linkFieldId = fieldConfig.opportunity.quote_payment_link;
+  const refFieldId = fieldConfig.opportunity.payment_ref_id;
+
+  const customFields = compact([
+    field(linkFieldId, input.invoiceUrl),
+    // THE FIX: stamp the payment ref so the webhook finds this quote opportunity.
+    field(refFieldId, input.externalId),
+  ]);
+
   const body: Record<string, unknown> = { monetaryValue: input.amount };
-  if (linkFieldId) body.customFields = [{ id: linkFieldId, field_value: input.invoiceUrl }];
+  if (customFields.length > 0) body.customFields = customFields;
 
   await ghlFetch(`/opportunities/${input.opportunityId}`, { method: "PUT", body });
 
@@ -819,9 +872,22 @@ export async function pushBookingToGHL(booking: BookingMetadata): Promise<PushRe
     company: booking.company_name,
   });
 
-  // ── Idempotency ─────────────────────────────────────────────────────────
+  // ── Idempotency / quote promotion ────────────────────────────────────────
+  // The search matches an opportunity carrying this payment_ref_id. Two cases:
+  //   (a) a re-sent callback for a booking already in Confirmed → skip (idempotent)
+  //   (b) a PRICED QUOTE lead in New Inquiry (stamped with this ref at pricing
+  //       time) → PROMOTE it to Confirmed in place, instead of creating a
+  //       duplicate. This is the quote-flow fix.
   const existing = await findOpportunityByPaymentRef(contactId, booking.external_id);
   if (existing) {
+    const stage = await readOpportunityStage(existing);
+    if (stage && stage !== fieldConfig.stageConfirmedId) {
+      // Case (b): a priced quote awaiting payment. Move it to Confirmed + fill in.
+      await promoteToConfirmed(existing, booking);
+      const appointmentId = await ensureAppointment(contactId, existing, booking);
+      return { created: true, contactId, opportunityId: existing, appointmentId };
+    }
+    // Case (a): already Confirmed — a genuine duplicate callback.
     console.log(
       `[ghl] booking ${booking.external_id} already recorded as opportunity ${existing} — ` +
         `skipping. This is the idempotency guard working, not an error.`,

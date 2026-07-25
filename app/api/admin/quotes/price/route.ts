@@ -97,6 +97,7 @@ export async function POST(request: Request) {
         contactId: d.contactId,
         invoiceUrl: result.invoiceUrl,
         amount: d.amountUSD,
+        externalId: result.externalId,
       });
     } catch (err) {
       console.error("[admin/quotes/price] attach to GHL failed (invoice exists):", err);
