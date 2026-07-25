@@ -80,6 +80,14 @@ body {
   border-radius: 2px;
 }
 
+/* Composed number fields (rates editor) wrap the input WITH a prefix/suffix in a
+ * bordered box that shows focus via `focus-within`. The input must NOT also draw
+ * its own outline — that boxed only the input and stranded the $ prefix outside
+ * the ring. The wrapper's brass border is the (still keyboard-visible) focus cue. */
+.no-spinner:focus-visible {
+  outline: none;
+}
+
 /* Native date/time pickers ship a dark-on-dark calendar glyph; invert it. */
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator {
