@@ -312,9 +312,16 @@ export async function createBookingOpportunity(
   const customFields = compact([
     field(opportunityFields.pickup_location, booking.pickup_location),
     field(opportunityFields.dropoff_location, booking.dropoff_location),
+    // GHL DATE fields TRUNCATE the time, so the date field carries the date only.
     field(opportunityFields.pickup_datetime, toGHLDate(booking.pickup_datetime)),
+    // …and a TEXT field carries the full LA date+time ("Jul 27, 9:39 PM PDT"),
+    // which is what customer emails and the CRM should actually show. Without
+    // this the pickup time is lost to everything except the opportunity name.
+    field(opportunityFields.pickup_datetime_text, formatPickupShort(booking.pickup_datetime)),
     field(opportunityFields.ride_type, booking.ride_type),
-    field(opportunityFields.vehicle_class, booking.vehicle_class),
+    // Write the human LABEL ("Business Class"), not the internal id ("business"),
+    // so it reads correctly in emails and the CRM — never a raw id leaking out.
+    field(opportunityFields.vehicle_class, vehicleLabel),
     field(opportunityFields.passenger_count, booking.passengers),
     field(opportunityFields.luggage_count, booking.luggage),
     field(opportunityFields.flight_number, booking.flight_number),

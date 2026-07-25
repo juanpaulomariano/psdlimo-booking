@@ -32,6 +32,9 @@ const OPPORTUNITY_FIELDS: Record<string, { expectedOptions?: readonly string[] }
   pickup_location: {},
   dropoff_location: {},
   pickup_datetime: {},
+  // A TEXT field carrying the full LA date+time ("Jul 27, 9:39 PM PDT"). Needed
+  // because GHL DATE fields truncate the time — this is what emails/CRM show.
+  pickup_datetime_text: {},
   ride_type: { expectedOptions: ["distance", "hourly", "flat"] },
   vehicle_class: { expectedOptions: VEHICLE_CLASS_IDS },
   passenger_count: {},
