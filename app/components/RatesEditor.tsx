@@ -214,7 +214,7 @@ function NumberField({
     <label className="block">
       <span className="text-paper-300 mb-1.5 block text-xs">{label}</span>
       <span className="border-ink-500 bg-ink-700 focus-within:border-brass-400 flex items-center rounded-sm border transition-colors">
-        {prefix && <span className="text-paper-500 pl-3 text-sm">{prefix}</span>}
+        {prefix && <span className="text-paper-500 shrink-0 pl-3 text-sm">{prefix}</span>}
         <input
           type="number"
           inputMode="decimal"
@@ -222,9 +222,14 @@ function NumberField({
           min={0}
           value={Number.isFinite(value) ? value : ""}
           onChange={(e) => onChange(Number.parseFloat(e.target.value))}
-          className="tnum text-paper-100 w-full bg-transparent px-3 py-2.5 text-[15px] outline-none"
+          // `no-spinner` hides the native up/down arrows (see globals.css) — they
+          // rendered on some fields and not others, and overlapped the prefix.
+          // Padding is asymmetric so the text doesn't hug a prefix/suffix.
+          className={`no-spinner tnum text-paper-100 w-full min-w-0 bg-transparent py-2.5 text-[15px] outline-none ${
+            prefix ? "pr-3 pl-2" : "px-3"
+          } ${suffix ? "pr-2" : ""}`}
         />
-        {suffix && <span className="text-paper-500 pr-3 text-xs">{suffix}</span>}
+        {suffix && <span className="text-paper-500 shrink-0 pr-3 text-xs">{suffix}</span>}
       </span>
     </label>
   );
