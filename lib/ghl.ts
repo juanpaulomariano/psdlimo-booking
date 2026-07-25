@@ -370,6 +370,93 @@ export async function createBookingOpportunity(
   return opportunityId;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * Quote request (complex bookings) — a LEAD, not a paid booking.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+export type QuoteLeadInput = {
+  name: string;
+  email: string;
+  phone: string;
+  /** Rough pickup date "YYYY-MM-DD", or "" if flexible. */
+  preferredDate: string;
+  /** Approximate party size, or null. */
+  passengers: number | null;
+  /** The customer's free-text description of the complex trip. */
+  tripDetails: string;
+};
+
+/**
+ * Create a manual-quote LEAD from the website "Request a Quote" form (complex
+ * trips the rules can't auto-price — contract Phase 2).
+ *
+ * Unlike a paid booking this takes NO PAYMENT and creates NO invoice/appointment:
+ * it upserts the contact and creates an opportunity in the **New Inquiry** stage
+ * for the owner to price manually. Tagged `source.website` (it came from the
+ * site, same channel as a booking) + `lead.quote-request` (its nature), so the
+ * owner can filter New Inquiry to the custom quotes awaiting a price.
+ *
+ * The trip description goes on the opportunity's `special_requests` field (a
+ * multi-line text field) so the owner sees the request without opening a note.
+ *
+ * @returns the new contact + opportunity ids.
+ */
+export async function createQuoteLead(
+  input: QuoteLeadInput,
+): Promise<{ contactId: string; opportunityId: string }> {
+  const locationId = requireEnv("GHL_LOCATION_ID");
+
+  const contactId = await upsertContact({
+    name: input.name,
+    email: input.email,
+    phone: input.phone,
+    tags: ["source.website", "lead.quote-request"],
+  });
+
+  const newInquiryStageId = (fieldConfig as { stageNewInquiryId?: string }).stageNewInquiryId;
+  if (!newInquiryStageId) {
+    throw new GHLError(
+      "No stageNewInquiryId in config/ghl-fields.json — run npm run ghl:ids after " +
+        "confirming the New Inquiry stage exists.",
+    );
+  }
+
+  // A readable summary on the opportunity NAME so the owner sees the essentials
+  // at a glance on the board, and the full description in special_requests.
+  const parts = [
+    input.preferredDate ? `date ${input.preferredDate}` : null,
+    input.passengers ? `${input.passengers} pax` : null,
+  ].filter(Boolean);
+  const summary = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+
+  const customFields = compact([
+    field(fieldConfig.opportunity.special_requests, input.tripDetails),
+    field(fieldConfig.opportunity.booking_source, "website"),
+    field(fieldConfig.opportunity.passenger_count, input.passengers ?? null),
+  ]);
+
+  const response = (await ghlFetch("/opportunities/", {
+    method: "POST",
+    body: {
+      pipelineId: fieldConfig.pipelineId,
+      locationId,
+      contactId,
+      pipelineStageId: newInquiryStageId,
+      name: `Quote request — ${input.name}${summary}`,
+      status: "open",
+      // No monetaryValue — the owner sets it when they price the quote.
+      customFields,
+    },
+  })) as { opportunity?: { id?: string }; id?: string };
+
+  const opportunityId = response.opportunity?.id ?? response.id;
+  if (!opportunityId) {
+    throw new GHLError("Quote-lead opportunity creation succeeded but returned no id.");
+  }
+
+  console.log(`[ghl] quote-request lead ${opportunityId} created for ${input.email}`);
+  return { contactId, opportunityId };
+}
 
 /** Write a single custom field onto an existing opportunity (e.g. appointment_id). */
 export async function updateOpportunityField(

@@ -85,6 +85,7 @@ const STAGE_NAME = "Confirmed";
  * "Possible Double Booking" stage.
  */
 const OPTIONAL_STAGES: Record<string, string> = {
+  stageNewInquiryId: "New Inquiry",
   stageAssignedId: "Assigned",
   stageCompletedId: "Completed",
   stageCancelledId: "Cancelled",

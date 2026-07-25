@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BookingWizard } from "./components/BookingWizard";
 
 export default function Home() {
@@ -18,7 +19,22 @@ export default function Home() {
 
       <BookingWizard />
 
-      <footer className="border-ink-700 text-paper-500 mt-24 border-t pt-8 text-xs">
+      {/* Manual-quote path for complex trips (contract Phase 2). */}
+      <div className="border-ink-700 mt-12 border-t pt-8">
+        <p className="text-paper-300 text-sm">
+          Planning something more complex — multiple stops, several vehicles, or a
+          multi-day itinerary?{" "}
+          <Link
+            href="/quote"
+            className="text-brass-400 hover:text-brass-300 underline underline-offset-4 transition-colors"
+          >
+            Request a custom quote
+          </Link>
+          .
+        </p>
+      </div>
+
+      <footer className="border-ink-700 text-paper-500 mt-16 border-t pt-8 text-xs">
         <p>PSDLimo · Demonstration build · Test payments only</p>
       </footer>
     </main>

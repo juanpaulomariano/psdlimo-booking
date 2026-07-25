@@ -121,6 +121,44 @@ export const contactSchema = z.object({
 export type Contact = z.infer<typeof contactSchema>;
 
 /**
+ * A "Request a Quote" submission — for COMPLEX trips the rules can't auto-price
+ * (multi-stop, multi-day, multiple vehicles, unusual routing). Contract Phase 2:
+ * "Instant quotation where rules allow, and manual quotation requests for complex
+ * bookings."
+ *
+ * Deliberately LIGHT — it is a LEAD, not a booking: no distance lookup, no price,
+ * no payment. The owner reads the description and quotes manually. It becomes a
+ * GHL contact + opportunity in the New Inquiry stage.
+ */
+export const quoteRequestFormSchema = z.object({
+  name: z.string().trim().min(2, "Please enter your full name").max(120),
+  email: z.email("Please enter a valid email address").max(200),
+  phone: z
+    .string()
+    .trim()
+    .min(7, "Please enter a valid phone number")
+    .max(32)
+    .regex(/^[+()\-.\s\d]+$/, "Phone number contains invalid characters"),
+  /** Rough pickup date, "YYYY-MM-DD". Optional — a complex enquiry may be flexible. */
+  preferredDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Please pick a date")
+    .optional()
+    .or(z.literal("")),
+  /** Approximate party size. Optional; capped generously for group/event enquiries. */
+  passengers: z.coerce.number().int().min(1).max(100).optional(),
+  /** The heart of the request: the customer describes the trip in their words.
+   *  Capped so a GHL note/opportunity field stays within limits. */
+  tripDetails: z
+    .string()
+    .trim()
+    .min(10, "Please describe your trip so we can quote it accurately")
+    .max(2000, "Please keep this under 2000 characters"),
+});
+
+export type QuoteRequestForm = z.infer<typeof quoteRequestFormSchema>;
+
+/**
  * POST /api/checkout
  *
  * NOTE what is absent: there is no `total` field, by design. The checkout route
