@@ -260,6 +260,10 @@ export type TagDerivationInput = {
   distanceMiles: number | null;
   isAirportFlatRoute: boolean;
   hasCompany: boolean;
+  /** True when the booking includes a return leg (a round trip). Adds the
+   *  `ride-roundtrip` tag so the owner can see/filter round trips at a glance —
+   *  a round trip is ONE opportunity carrying a return_datetime, not two. */
+  isRoundTrip: boolean;
 };
 
 /**
@@ -310,9 +314,14 @@ export function deriveBookingTags(input: TagDerivationInput): string[] {
     tags.add("client-corporate");
   }
 
-  // Guarantee at least one ride-* tag.
+  // Guarantee at least one ride-* CLASSIFICATION tag (airport/hourly/…). The
+  // round-trip tag below is a modifier, not a classification, so this runs first.
   const hasRide = [...tags].some((t) => t.startsWith("ride-"));
   if (!hasRide) tags.add("ride-pointtopoint");
+
+  // Round-trip modifier — stacks on top of the classification (e.g. a round-trip
+  // airport run carries both ride-airport AND ride-roundtrip).
+  if (input.isRoundTrip) tags.add("ride-roundtrip");
 
   return [...tags];
 }

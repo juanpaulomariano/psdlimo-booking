@@ -368,6 +368,7 @@ const baseTags = {
   distanceMiles: 8,
   isAirportFlatRoute: false,
   hasCompany: false,
+  isRoundTrip: false,
 };
 
 check("every booking gets source-website, payment-paid, method-card", () => {
@@ -417,6 +418,21 @@ check("tags stack — a corporate airport group ride carries all three", () => {
   assert.ok(t.includes("ride-airport"));
   assert.ok(t.includes("ride-group"));
   assert.ok(t.includes("ride-corporate"));
+});
+
+check("a round trip adds ride-roundtrip on TOP of the classification", () => {
+  // A local round trip: point-to-point classification + the round-trip modifier.
+  const local = deriveBookingTags({ ...baseTags, isRoundTrip: true });
+  assert.ok(local.includes("ride-pointtopoint"));
+  assert.ok(local.includes("ride-roundtrip"));
+  // An airport round trip carries both ride-airport AND ride-roundtrip.
+  const airport = deriveBookingTags({ ...baseTags, pickupLocation: "SFO", isRoundTrip: true });
+  assert.ok(airport.includes("ride-airport"));
+  assert.ok(airport.includes("ride-roundtrip"));
+});
+
+check("a one-way ride does NOT get ride-roundtrip", () => {
+  assert.ok(!deriveBookingTags(baseTags).includes("ride-roundtrip"));
 });
 
 check("hyphen→dot mapping only touches the namespace separator", () => {

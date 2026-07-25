@@ -134,6 +134,8 @@ export async function POST(request: Request) {
     distanceMiles,
     isAirportFlatRoute,
     hasCompany: company.length > 0,
+    // Only distance rides can be round trips (they carry an optional returnAt).
+    isRoundTrip: ride.rideType === "distance" && Boolean(ride.returnAt),
   });
 
   const vehicleLabel = getVehicleClass(ride.vehicleClass).label;

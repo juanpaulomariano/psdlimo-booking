@@ -199,6 +199,7 @@ export const BOOKING_TAGS = [
   "ride-group",
   "ride-corporate",
   "ride-pointtopoint",
+  "ride-roundtrip",
   "method-card",
   "payment-paid",
   "client-corporate",
