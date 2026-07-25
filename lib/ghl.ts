@@ -458,6 +458,111 @@ export async function createQuoteLead(
   return { contactId, opportunityId };
 }
 
+/** A quote lead awaiting a price, for the admin Quotes list. */
+export type QuoteLead = {
+  opportunityId: string;
+  contactId: string;
+  name: string;
+  email: string;
+  phone: string;
+  itinerary: string;
+  createdAt: string;
+};
+
+/**
+ * List quote-request leads in the New Inquiry stage that have NOT yet been priced
+ * (no payment link attached). These are what the owner sees in the admin Quotes
+ * list. Scoped to the New Inquiry stage of our pipeline.
+ *
+ * The search endpoint returns opportunities without full custom fields, so for
+ * each candidate we read the opportunity + its contact to build the row. Kept to
+ * a modest page size — quote requests are low volume.
+ */
+export async function listQuoteLeads(): Promise<QuoteLead[]> {
+  const locationId = requireEnv("GHL_LOCATION_ID");
+  const stageId = (fieldConfig as { stageNewInquiryId?: string }).stageNewInquiryId;
+  if (!stageId) return [];
+
+  const search = (await ghlFetch(
+    `/opportunities/search?location_id=${encodeURIComponent(locationId)}` +
+      `&pipeline_stage_id=${encodeURIComponent(stageId)}&limit=50`,
+  )) as { opportunities?: Array<{ id: string; name?: string; contactId?: string; createdAt?: string }> };
+
+  const leads: QuoteLead[] = [];
+  for (const opp of search.opportunities ?? []) {
+    // Only quote-request leads — the name we set starts with "Quote request".
+    if (!opp.name?.startsWith("Quote request")) continue;
+    // Skip ones already priced (payment link attached).
+    const linkField = fieldConfig.opportunity.quote_payment_link;
+    const existingLink = linkField ? await readOpportunityField(opp.id, linkField) : null;
+    if (existingLink) continue;
+
+    const full = (await ghlFetch(`/opportunities/${opp.id}`)) as {
+      opportunity?: { customFields?: GHLFieldValue[]; contactId?: string; createdAt?: string };
+    };
+    const fields = full.opportunity?.customFields ?? [];
+    const itinerary =
+      readFieldValue(fields.find((f) => f.id === fieldConfig.opportunity.special_requests)) ?? "";
+
+    const contactId = opp.contactId ?? full.opportunity?.contactId ?? "";
+    let name = "",
+      email = "",
+      phone = "";
+    if (contactId) {
+      const c = (await ghlFetch(`/contacts/${contactId}`)) as {
+        contact?: { name?: string; firstName?: string; lastName?: string; email?: string; phone?: string };
+      };
+      name = c.contact?.name ?? `${c.contact?.firstName ?? ""} ${c.contact?.lastName ?? ""}`.trim();
+      email = c.contact?.email ?? "";
+      phone = c.contact?.phone ?? "";
+    }
+
+    leads.push({
+      opportunityId: opp.id,
+      contactId,
+      name,
+      email,
+      phone,
+      itinerary,
+      createdAt: opp.createdAt ?? full.opportunity?.createdAt ?? "",
+    });
+  }
+  return leads;
+}
+
+/**
+ * After the owner prices a quote and the invoice is created, record the outcome
+ * on the opportunity: store the payment link, set the monetary value, and tag it
+ * `lead.quoted` so a GHL workflow (WF-08) can email the customer the link and the
+ * owner can filter "quoted, awaiting payment". Never throws in a way that loses
+ * the invoice — the caller already has the link.
+ */
+export async function attachQuoteInvoice(input: {
+  opportunityId: string;
+  contactId: string;
+  invoiceUrl: string;
+  amount: number;
+}): Promise<void> {
+  const linkFieldId = fieldConfig.opportunity.quote_payment_link;
+  const body: Record<string, unknown> = { monetaryValue: input.amount };
+  if (linkFieldId) body.customFields = [{ id: linkFieldId, field_value: input.invoiceUrl }];
+
+  await ghlFetch(`/opportunities/${input.opportunityId}`, { method: "PUT", body });
+
+  // Tag so the follow-up workflow can fire and the owner can filter.
+  if (input.contactId) {
+    try {
+      await ghlFetch(`/contacts/${input.contactId}/tags`, {
+        method: "POST",
+        body: { tags: ["lead.quoted"] },
+      });
+    } catch (err) {
+      console.error(`[ghl] could not tag lead.quoted on ${input.contactId}: ${err}`);
+    }
+  }
+  console.log(`[ghl] quote ${input.opportunityId} priced $${input.amount}, link attached`);
+}
+
 /** Write a single custom field onto an existing opportunity (e.g. appointment_id). */
 export async function updateOpportunityField(
   opportunityId: string,

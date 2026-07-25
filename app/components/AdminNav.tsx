@@ -1,14 +1,15 @@
 import Link from "next/link";
 
 /**
- * The admin section's two-tab nav (Rates · Dispatch). A plain server component —
- * the `current` prop just styles the active link. Both destinations are behind
- * the same server-side role guard, so this is purely navigation, not security.
+ * The admin section's tab nav (Rates · Dispatch · Quotes). A plain server
+ * component — the `current` prop just styles the active link. All destinations
+ * are behind the same server-side role guard, so this is purely navigation.
  */
-export function AdminNav({ current }: { current: "rates" | "dispatch" }) {
+export function AdminNav({ current }: { current: "rates" | "dispatch" | "quotes" }) {
   const tabs = [
     { key: "rates", label: "Rates & pricing", href: "/admin" },
     { key: "dispatch", label: "Dispatch", href: "/admin/dispatch" },
+    { key: "quotes", label: "Quotes", href: "/admin/quotes" },
   ] as const;
 
   return (

@@ -53,6 +53,8 @@ const OPPORTUNITY_FIELDS: Record<string, { expectedOptions?: readonly string[] }
   chauffeur_assigned: {}, // owner-written; the one manual field
   chauffeur_phone: {},
   appointment_id: {}, // webhook-written; appointment retry-safety
+  // Custom-quote flow: the payment link the owner sends after pricing a quote.
+  quote_payment_link: {},
 };
 
 /** Contact fields describe the PERSON, so overwriting on a repeat booking is fine. */
@@ -106,6 +108,7 @@ const REQUIRED_TAGS = [
   "ride.corporate",
   "ride.pointtopoint",
   "ride.roundtrip",
+  "ride.custom",
   "method.card",
   "payment.paid",
   "client.corporate",
