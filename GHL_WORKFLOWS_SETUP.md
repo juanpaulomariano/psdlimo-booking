@@ -292,23 +292,29 @@ by GHL, which is why the system needs no email service of its own.
 **Folder:** `PSD · Booking Lifecycle`
 **Prerequisite:** the `Completed` stage — **already exists** in the pipeline.
 
-**What it's for:** Marks a ride done — moves the board to `Completed` and drops the
-`lifecycle.completed` tag that WF-06 keys off. Anchors on the appointment ending,
-so it needs no manual step from the owner.
+**What it's for:** When a ride is marked **Completed**, drop the
+`lifecycle.completed` tag that WF-06 (the review request) keys off.
 
-### TRG: Appointment on `PSDLimo Rides` has ended
-- **Trigger type:** *Appointment Status* → the appointment's end time has passed
-  (a.k.a. an "appointment ended" / end-time-relative wait).
-- **Filters:** Calendar **is** `PSDLimo Rides`.
-- **Why not "owner drags to Completed":** the appointment end is already the
-  precise ride-end time the webhook computed, so completion is automatic and can't
-  be forgotten. (If the owner prefers manual control, swap to *Opportunity Status
-  Changed → Stage is `Completed`* — but then WF-05 only tags, it doesn't move.)
+> **IMPORTANT — do NOT trigger this on a timer (decided 2026-07-25).** An earlier
+> draft fired this when the appointment's *scheduled* end time passed. That is
+> WRONG: traffic and delays mean the real ride often ends much later, so a timer
+> could ask a customer to review a ride they're still sitting in. "Completed" must
+> mean the ride ACTUALLY ended — a human/driver signal, never a clock. Today that
+> signal is the opportunity entering the `Completed` stage (the owner moves it, or
+> the future driver portal marks it done). This is what makes post-ride automation
+> trustworthy.
+
+### TRG: Opportunity entered `Completed`
+- **Trigger type:** *Opportunity Status Changed* (a.k.a. "Pipeline Stage Changed").
+- **Filters:**
+  - Pipeline **is** `PSDLimo Bookings`
+  - Stage **is** `Completed`
+- **Why:** the stage moves to Completed only when a real person confirms the ride
+  is done, so "entered Completed" == "the ride genuinely finished" — delay-proof.
 
 ### Actions
-- **ACT-1: Move opportunity to `Completed` stage** — *Update Opportunity* → Stage
-  `Completed`.
-- **ACT-2: Add tag `lifecycle.completed`** — this is what triggers WF-06.
+- **ACT-1: Add tag `lifecycle.completed`** — this is what triggers WF-06. (No stage
+  move here — the trigger already IS the stage change.)
 
 ---
 
@@ -326,7 +332,9 @@ Chained off WF-05's tag so it only fires for genuinely completed rides.
   is decided, only WF-05 changes and WF-06 keeps working.
 
 ### Actions
-- **ACT-1: Wait 3 hours** — *Wait* (gives the ride time to actually finish).
+- **ACT-1: Wait 3 hours** — *Wait*. The ride has already ended (that's what set the
+  tag), so this is just a polite gap before asking for a review, not a guess at
+  when the ride finished.
 - **ACT-2: Email/SMS review request** with the review link, addressed to
   `{{contact.name}}`, referencing `{{opportunity.pickup_datetime}}`.
 

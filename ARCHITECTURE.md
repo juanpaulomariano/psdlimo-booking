@@ -231,6 +231,12 @@ surface we want to avoid. Captured here so it's ready to build cleanly.
   GHL opportunity stage (In Progress / Completed / Cancelled) + tag — the SAME
   one-way pattern already built for driver assignment (`syncDriverAssignmentToGHL`).
   The owner still sees everything in GHL; the portal is just the drivers' window.
+- **This is what makes post-ride automation trustworthy.** The review-request
+  workflow (WF-06) must fire on ACTUAL completion, not a scheduled end time —
+  traffic/delays make a timer ask a customer to review a ride they're still in
+  (owner's concern, 2026-07-25). Until the portal exists, the owner marks
+  `Completed` in GHL and that triggers WF-05/06; the portal simply moves that
+  "Completed" signal to the person who actually knows — the driver.
 
 **Why a second UI is acceptable here** (given "GHL is the central offer"): the
 portal is for DRIVERS, not the owner. The owner's cockpit stays GHL; drivers get a
