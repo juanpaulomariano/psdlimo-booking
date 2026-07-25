@@ -3,7 +3,7 @@
  *
  * This module is called from EXACTLY ONE PLACE: the verified Xendit callback in
  * app/api/xendit-webhook. No other route may write to the CRM — paid ⇔ exists in
- * GHL, and an abandoned invoice must leave zero trace. See CLAUDE.md invariant 2.
+ * GHL, and an abandoned invoice must leave zero trace. See the project invariants (invariant 2).
  *
  * Every contract below was verified against the live sandbox before being coded,
  * because several plausible-looking approaches silently do not work:

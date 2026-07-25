@@ -14,7 +14,7 @@
  * DISPLAY ONLY. This never returns a distance and nothing here feeds the
  * pricing engine — the priced distance comes from computeRouteMatrix and
  * nowhere else. Two disagreeing mileage figures on screen would be worse than
- * no map at all. See DEMO_NOTES.md item 3a.
+ * no map at all.
  */
 
 import { MAP_STYLE_PARAMS } from "@/config/map-style";

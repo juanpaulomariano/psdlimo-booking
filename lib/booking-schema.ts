@@ -96,7 +96,7 @@ export type QuoteRequest = z.infer<typeof quoteRequestSchema>;
  *
  * specialRequests is user free-text bound for Xendit invoice metadata, which has
  * size limits — capped at 400 here AND truncated server-side before it is
- * attached to the invoice (belt and braces; see CLAUDE.md).
+ * attached to the invoice (belt and braces; see the project notes).
  */
 export const contactSchema = z.object({
   name: z.string().trim().min(2, "Please enter your full name").max(120),
@@ -125,7 +125,7 @@ export type Contact = z.infer<typeof contactSchema>;
  *
  * NOTE what is absent: there is no `total` field, by design. The checkout route
  * recomputes the price from `ride` via lib/pricing.ts. A client-submitted total
- * is not merely ignored — there is nowhere to put it. See CLAUDE.md invariant 1.
+ * is not merely ignored — there is nowhere to put it. See the project invariants (invariant 1).
  */
 export const checkoutRequestSchema = z.object({
   ride: rideDetailsSchema,

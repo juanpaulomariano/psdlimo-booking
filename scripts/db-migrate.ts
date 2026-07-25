@@ -12,8 +12,7 @@
  * Stage E adds `driver`, `vehicle`, `trip` — the SILENT dispatch backend. These
  * are never shown in a website dashboard; they exist only so the system can (a)
  * record every paid ride as a trip and (b) detect a driver/vehicle time clash
- * when the owner assigns a driver in GHL. The owner's cockpit stays GHL. See
- * ARCHITECTURE.md §10.
+ * when the owner assigns a driver in GHL. The owner's cockpit stays GHL.
  */
 
 import { neon } from "@neondatabase/serverless";

@@ -10,7 +10,7 @@
  * The quote is DERIVED, never stored as truth: any change to the ride details
  * re-fetches from /api/quote. The displayed number always comes from the server
  * engine, and the Pay button stays disabled until a server-confirmed quote
- * exists. See CLAUDE.md invariant 1.
+ * exists. See the project invariants (invariant 1).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -636,7 +636,7 @@ export function BookingWizard() {
               value={specialRequests}
               onChange={(e) => setSpecialRequests(e.target.value)}
               rows={3}
-              // 400 here AND server-side. See CLAUDE.md on metadata limits.
+              // 400 here AND server-side. See the project notes on metadata limits.
               maxLength={400}
               placeholder="Child seat details, accessibility needs, preferred route…"
               hint={`${specialRequests.length}/400`}
@@ -659,7 +659,7 @@ export function BookingWizard() {
                   </div>
                 </div>
 
-                {/* Placeholders only — see ARCHITECTURE.md section 11. */}
+                {/* Placeholders only. */}
                 {[
                   { label: "PayPal", note: "Coming soon" },
                   { label: "Cash to chauffeur", note: "Coming soon" },

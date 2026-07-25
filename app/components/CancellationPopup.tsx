@@ -9,7 +9,7 @@
  *   Call  → tel: (tap-to-call on mobile)
  *   WhatsApp → not wired yet (renders disabled until a number exists)
  *
- * No backend, no database — pure redirects. See ARCHITECTURE.md §11.
+ * No backend, no database — pure redirects. see the project notes.
  */
 
 import { useEffect, useState } from "react";

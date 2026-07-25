@@ -7,7 +7,7 @@
  * to touch THIS FILE ONLY. If you find yourself importing Xendit anywhere else,
  * or leaking an `invoice.*` field shape upward, the boundary has already broken.
  *
- * See CLAUDE.md invariant 6 and ARCHITECTURE.md section 5.
+ * See the project invariants (invariant 6).
  *
  * Implementation note: we call the REST API directly with fetch rather than the
  * xendit-node SDK. The surface we need is two endpoints, and a direct call keeps
@@ -82,7 +82,7 @@ export class PaymentError extends Error {
 /**
  * The currency we can actually charge in. USD everywhere in the business; PHP
  * on this demo account because Xendit rejects USD invoices for it.
- * See config/rates.ts and DEMO_NOTES.md item 1.
+ * See config/rates.ts.
  */
 function chargeCurrency(): string {
   return (process.env.XENDIT_CURRENCY ?? "PHP").toUpperCase();
@@ -275,7 +275,7 @@ export function verifyCallback(headers: Headers): boolean {
  *
  * This was invisible in testing because the test payloads were hand-written
  * WITH a metadata block — i.e. they tested the assumption rather than Xendit's
- * actual behaviour. The lesson is in DEMO_NOTES.md: synthesise payloads from
+ * actual behaviour. The lesson: synthesise payloads from
  * the provider's real output, never from your own expectation of it.
  *
  * So: the callback tells us WHICH invoice was paid, and we fetch the booking
@@ -363,7 +363,7 @@ export function parseCallback(body: unknown): PaidCallback | null {
   const status = typeof event.status === "string" ? event.status.toUpperCase() : "";
   if (status !== "PAID" && status !== "SETTLED") {
     // EXPIRED lands here and is correct behaviour, not an error: an abandoned
-    // invoice leaves no CRM record by design. See DEMO_NOTES.md item 6.
+    // invoice leaves no CRM record by design.
     return null;
   }
 

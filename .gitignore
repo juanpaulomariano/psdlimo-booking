@@ -38,10 +38,30 @@ yarn-error.log*
 # vercel
 .vercel
 
-# local Claude Code settings (machine-specific)
-.claude/settings.local.json
+# local editor/tooling settings (machine-specific)
+.claude/
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# internal planning / working docs — kept locally, NOT published to the repo.
+# The final client-facing docs will be written once the system is fully deployed.
+AGENTS.md
+CLAUDE.md
+ARCHITECTURE.md
+ARCHITECTURE-AUDIT.md
+ARCHITECTURE-AUDIT-2.md
+COSTS.md
+DEMO_NOTES.md
+GHL_OPS_SETUP.md
+GHL_SETUP.md
+GHL_WORKFLOWS_SETUP.md
+HANDOVER-PREP.md
+HOW_IT_WORKS.md
+IMPLEMENTATION-PLAN.md
+PROPOSAL.md
+REVISED-SCOPE-NOTES.md
+ROADMAP.md
+STATE.md
 

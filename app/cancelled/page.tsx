@@ -4,7 +4,7 @@
  * The customer abandoned or failed the payment. NOTHING NEEDS CLEANING UP: the
  * invoice simply expires on its own, no PAID callback ever fires, and no CRM
  * record was ever created. That is correct behaviour, not a leak.
- * See DEMO_NOTES.md item 6.
+ *
  *
  * The tone here matters — a failed payment is usually a mistyped card, not a
  * decision to abandon. So: no alarm, no blame, one obvious way back.

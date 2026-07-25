@@ -8,7 +8,7 @@
  *
  * The booking becomes real when the verified provider callback reaches
  * /api/xendit-webhook. That is the only path that writes to the CRM.
- * See CLAUDE.md invariant 2.
+ * See the project invariants (invariant 2).
  *
  * Next 16: searchParams is a Promise and must be awaited.
  */

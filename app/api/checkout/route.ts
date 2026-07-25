@@ -5,11 +5,11 @@
  * client-submitted price is not merely ignored — there is nowhere to put it.
  * The amount charged comes from lib/pricing.ts, fed by a fresh Routes API
  * lookup, exactly as /api/quote does it. Tampering with the browser changes the
- * displayed number and nothing else. See CLAUDE.md invariant 1.
+ * displayed number and nothing else. See the project invariants (invariant 1).
  *
  * This route creates NO CRM record. GoHighLevel is written only from the
  * verified payment callback — paid ⇔ exists in GHL. An abandoned invoice must
- * leave zero trace. See CLAUDE.md invariant 2.
+ * leave zero trace. See the project invariants (invariant 2).
  */
 
 import { NextResponse } from "next/server";

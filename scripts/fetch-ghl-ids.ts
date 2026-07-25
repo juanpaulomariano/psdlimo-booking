@@ -91,9 +91,9 @@ const OPTIONAL_STAGES: Record<string, string> = {
 };
 
 /**
- * Tags. NOTE THE DOT NOTATION — the sandbox uses `source.website`, not
- * `source-website` as ARCHITECTURE.md originally specified. The CRM is the
- * source of truth for tag names, so the code matches the CRM.
+ * Tags. NOTE THE DOT NOTATION — the CRM uses `source.website`, not
+ * `source-website`. The CRM is the source of truth for tag names, so the code
+ * matches the CRM.
  */
 const REQUIRED_TAGS = [
   "source.website",

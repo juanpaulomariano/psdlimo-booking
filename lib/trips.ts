@@ -11,7 +11,7 @@
  * The owner's cockpit is GoHighLevel. Nothing here renders a website dashboard;
  * the DB is invisible infrastructure. A detected clash surfaces to the owner as
  * an email + a "Possible Double Booking" GHL stage — handled by the dispatch
- * route and a GHL workflow, NOT here. See ARCHITECTURE.md §10.
+ * route and a GHL workflow, NOT here. see the dispatch notes.
  *
  * All datetimes are stored as TIMESTAMPTZ (an absolute instant), so an
  * offset-carrying ISO string in ("…-07:00") and out is compared correctly
