@@ -9,8 +9,18 @@ import { NextResponse } from "next/server";
 import { registerSchema } from "@/lib/auth-schema";
 import { registerUser } from "@/lib/users";
 import { setSessionCookie } from "@/lib/auth";
+import { RATE_LIMITS, checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  // Public write endpoint — cap it so nobody can bulk-create accounts.
+  const limited = checkRateLimit(request, "auth", RATE_LIMITS.auth.limit, RATE_LIMITS.auth.windowMs);
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
+  }
+
   let raw: unknown;
   try {
     raw = await request.json();

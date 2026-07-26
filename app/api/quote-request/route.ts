@@ -19,8 +19,24 @@
 import { NextResponse } from "next/server";
 import { quoteRequestFormSchema } from "@/lib/booking-schema";
 import { createQuoteLead, GHLError } from "@/lib/ghl";
+import { RATE_LIMITS, checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  // Creates a CRM lead on every call — cap it so the owner's New Inquiry stage
+  // can't be flooded with junk enquiries.
+  const limited = checkRateLimit(
+    request,
+    "quote-request",
+    RATE_LIMITS.quoteRequest.limit,
+    RATE_LIMITS.quoteRequest.windowMs,
+  );
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
+  }
+
   let raw: unknown;
   try {
     raw = await request.json();

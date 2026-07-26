@@ -10,8 +10,19 @@ import { NextResponse } from "next/server";
 import { loginSchema } from "@/lib/auth-schema";
 import { authenticate } from "@/lib/users";
 import { setSessionCookie } from "@/lib/auth";
+import { RATE_LIMITS, checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  // Password endpoint — cap attempts per IP to slow credential stuffing. The
+  // limit is far above an honest user who mistyped a couple of times.
+  const limited = checkRateLimit(request, "auth", RATE_LIMITS.auth.limit, RATE_LIMITS.auth.windowMs);
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
+  }
+
   let raw: unknown;
   try {
     raw = await request.json();

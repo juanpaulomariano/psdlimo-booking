@@ -92,14 +92,19 @@ async function seed() {
   `;
   console.log(`  ✓ demo admin reserved (${DEMO_ADMIN_EMAIL})`);
 
-  // ── demo drivers & vehicles (PLACEHOLDER roster for the dispatch demo) ─────
-  // The owner assigns a driver by NAME in GHL; these names are what the assign
-  // webhook resolves against. Real roster is entered at go-live. `id`s are
-  // stable slugs so the seed is idempotent and the test harness can reference
-  // them. Two drivers + two cars is enough to demo a clash and a clean assign.
+  // ── demo drivers (PLACEHOLDER roster) ─────────────────────────────────────
+  // The owner assigns a driver by name in the admin; the real roster is entered
+  // at go-live and managed there. `id`s are stable slugs so the seed is
+  // idempotent and the test harness can reference them.
+  //
+  // FOUR, not two: the dispatch rule is one driver = one trip per day, so with
+  // only two drivers a second same-day assignment hits the block immediately and
+  // reads as a bug rather than the protection it is.
   const drivers: Array<[string, string, string, string]> = [
     ["drv-marco", "Marco Reyes", "09170000001", "marco@psdlimo.demo"],
     ["drv-elena", "Elena Cruz", "09170000002", "elena@psdlimo.demo"],
+    ["drv-james", "James Okafor", "09170000003", "james@psdlimo.demo"],
+    ["drv-sofia", "Sofia Lindqvist", "09170000004", "sofia@psdlimo.demo"],
   ];
   for (const [id, name, phone, email] of drivers) {
     await sql`
@@ -110,20 +115,6 @@ async function seed() {
     `;
   }
   console.log(`  ✓ ${drivers.length} demo drivers`);
-
-  const vehicles: Array<[string, string, string, string]> = [
-    ["veh-s580", "Mercedes S580", "PSD-101", "first"],
-    ["veh-suburban", "Chevrolet Suburban", "PSD-202", "suv-van"],
-  ];
-  for (const [id, label, plate, classId] of vehicles) {
-    await sql`
-      INSERT INTO vehicle (id, label, plate, class_id)
-      VALUES (${id}, ${label}, ${plate}, ${classId})
-      ON CONFLICT (id) DO UPDATE SET
-        label = EXCLUDED.label, plate = EXCLUDED.plate, class_id = EXCLUDED.class_id, active = true
-    `;
-  }
-  console.log(`  ✓ ${vehicles.length} demo vehicles`);
 
   console.log("\n✓ Seed complete — DB now mirrors config/rates.ts.\n");
 }

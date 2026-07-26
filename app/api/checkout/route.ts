@@ -21,6 +21,7 @@ import { getRateCard } from "@/lib/rates-source";
 import { RoutingError, getDrivingRoute } from "@/lib/maps";
 import { PaymentError, createInvoice } from "@/lib/payments";
 import { createPendingBookingLead } from "@/lib/ghl";
+import { RATE_LIMITS, checkRateLimit } from "@/lib/rate-limit";
 import {
   MIN_LEAD_TIME_HOURS,
   deriveBookingTags,
@@ -30,6 +31,22 @@ import {
 import { formatPickupShort, meetsLeadTime } from "@/lib/datetime";
 
 export async function POST(request: Request) {
+  // ── Rate limit FIRST ─────────────────────────────────────────────────────
+  // Each successful call creates a REAL invoice at the payment provider (and a
+  // pending CRM lead). Cap it before any of that happens.
+  const limited = checkRateLimit(
+    request,
+    "checkout",
+    RATE_LIMITS.checkout.limit,
+    RATE_LIMITS.checkout.windowMs,
+  );
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
+  }
+
   // ── Parse ────────────────────────────────────────────────────────────────
   let raw: unknown;
   try {

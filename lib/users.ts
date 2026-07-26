@@ -90,6 +90,21 @@ export async function authenticate(
   return toSessionUser(row);
 }
 
+/**
+ * The user's CURRENT role, straight from the database.
+ *
+ * Used by requireAdmin() to re-verify on every admin request rather than trusting
+ * the role baked into a 7-day session token. Returns null when the user no longer
+ * exists — a deleted account must not retain access via a live cookie.
+ */
+export async function getUserRole(id: string): Promise<Role | null> {
+  const rows = (await sql`
+    SELECT role FROM app_user WHERE id = ${id} LIMIT 1
+  `) as unknown as { role: string }[];
+  if (rows.length === 0) return null;
+  return rows[0].role === "admin" ? "admin" : "user";
+}
+
 /** Set a user's password (used to give the seeded admin a real password). */
 export async function setUserPassword(email: string, password: string): Promise<boolean> {
   const hash = await hashPassword(password);

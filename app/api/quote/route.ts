@@ -17,6 +17,7 @@ import { getRateCard } from "@/lib/rates-source";
 import { RoutingError, getDrivingRoute } from "@/lib/maps";
 import { MIN_LEAD_TIME_HOURS, getFlatRoute } from "@/config/rates";
 import { meetsLeadTime } from "@/lib/datetime";
+import { RATE_LIMITS, checkRateLimit } from "@/lib/rate-limit";
 
 export type QuoteResponse = {
   breakdown: ReturnType<typeof calculatePrice>;
@@ -27,6 +28,17 @@ export type QuoteResponse = {
 };
 
 export async function POST(request: Request) {
+  // ── Rate limit FIRST ─────────────────────────────────────────────────────
+  // This route calls the BILLED Google Routes API on every request. Cap it
+  // before doing any work, so an abusive loop costs us nothing.
+  const limited = checkRateLimit(request, "quote", RATE_LIMITS.quote.limit, RATE_LIMITS.quote.windowMs);
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many quote requests. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
+  }
+
   // ── Parse ────────────────────────────────────────────────────────────────
   let raw: unknown;
   try {

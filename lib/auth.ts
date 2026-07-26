@@ -121,12 +121,37 @@ export async function getSession(): Promise<SessionUser | null> {
   return verifySessionToken(token);
 }
 
-/** Throws unless the caller is an admin. The SERVER-SIDE guard behind the admin
- *  UI — a hidden button is not security; this is. */
+/**
+ * Throws unless the caller is an admin. The SERVER-SIDE guard behind the admin
+ * UI — a hidden button is not security; this is.
+ *
+ * RE-CHECKS THE ROLE AGAINST THE DATABASE, not just the token. The JWT carries
+ * the role it had at LOGIN and lives for 7 days, so trusting it alone meant a
+ * revoked admin kept full pricing and dispatch access for up to a week with no
+ * way to cut them off. Named failure: the owner removes a dispatcher's access on
+ * Monday and that person can still change rates on Friday.
+ *
+ * Cost is one indexed lookup per admin request. Fails CLOSED — if the role can't
+ * be confirmed (DB down, user deleted), access is denied rather than assumed.
+ */
 export async function requireAdmin(): Promise<SessionUser> {
   const session = await getSession();
   if (!session || session.role !== "admin") {
     throw new Error("FORBIDDEN");
   }
-  return session;
+
+  // Import here rather than at module scope: lib/users imports from this file,
+  // and a top-level import would create a cycle.
+  const { getUserRole } = await import("@/lib/users");
+  let currentRole: Role | null;
+  try {
+    currentRole = await getUserRole(session.id);
+  } catch {
+    // Cannot verify → do not grant. Admin pages are DB-backed anyway, so this
+    // fails at the next query regardless; denying here is the honest answer.
+    throw new Error("FORBIDDEN");
+  }
+
+  if (currentRole !== "admin") throw new Error("FORBIDDEN");
+  return { ...session, role: currentRole };
 }

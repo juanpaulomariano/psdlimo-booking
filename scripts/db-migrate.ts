@@ -119,38 +119,26 @@ async function migrate() {
   `;
   console.log("  ✓ driver");
 
-  /* ── vehicle ───────────────────────────────────────────────────────────────
-   * Physical cars (distinct from `vehicle_class`, which is a PRICING tier). A
-   * clash can be a driver double-booked OR the same car double-booked, so both
-   * are first-class. `class_id` ties a car to its pricing tier for reporting.
-   */
-  await sql`
-    CREATE TABLE IF NOT EXISTS vehicle (
-      id           TEXT PRIMARY KEY,
-      label        TEXT NOT NULL,
-      plate        TEXT NOT NULL DEFAULT '',
-      class_id     TEXT REFERENCES vehicle_class(id),
-      active       BOOLEAN NOT NULL DEFAULT true,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-  console.log("  ✓ vehicle");
-
   /* ── trip ──────────────────────────────────────────────────────────────────
    * One row per PAID ride, written silently by the payment webhook. This is the
-   * backbone of clash detection: `pickup_at` + `ends_at` give each trip a time
-   * window, and a driver/vehicle assigned to two overlapping windows is a double
-   * booking.
+   * backbone of the dispatch rule: `pickup_at` gives each trip a day, and a
+   * driver already holding a trip on that LA day cannot take another.
    *
    *   external_id  — the booking ref (psdlimo-…); UNIQUE so the webhook is
    *                  idempotent here exactly as it is in GHL (a re-sent callback
    *                  updates the same row, never inserts a second).
-   *   ghl_*        — the ids the webhook already obtained, so dispatch can flag
+   *   ghl_*        — the ids the webhook already obtained, so dispatch can act on
    *                  the RIGHT opportunity later without re-searching GHL.
-   *   driver_id /  — NULL until the owner assigns in GHL. The assign webhook
-   *   vehicle_id     fills these and re-runs the clash check.
+   *   driver_id    — NULL until the owner assigns in the admin.
    *   status       — coarse lifecycle for reporting (booked → assigned → …).
    *                  Fine-grained live statuses are a FUTURE phase.
+   *
+   * NOTE: there is deliberately NO vehicle_id. A `vehicle` table and
+   * `trip.vehicle_id` existed briefly for a same-car clash check that was never
+   * built — nothing ever wrote or read them. Dead schema teaches the next
+   * developer that something is load-bearing when it is not, so it was removed
+   * (2026-07-26). If vehicle-level dispatch is wanted later, add it then, when
+   * its real shape is known.
    */
   await sql`
     CREATE TABLE IF NOT EXISTS trip (
@@ -165,17 +153,24 @@ async function migrate() {
       dropoff_location  TEXT NOT NULL DEFAULT '',
       vehicle_class  TEXT NOT NULL DEFAULT '',
       driver_id      TEXT REFERENCES driver(id),
-      vehicle_id     TEXT REFERENCES vehicle(id),
       status         TEXT NOT NULL DEFAULT 'booked',
       created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
-  // The clash query filters by driver_id/vehicle_id and an overlapping time
-  // window; these indexes keep it fast as trip history grows.
+  // The assignment check filters by driver_id and pickup day; this index keeps it
+  // fast as trip history grows.
   await sql`CREATE INDEX IF NOT EXISTS trip_driver_time  ON trip (driver_id, pickup_at, ends_at)`;
-  await sql`CREATE INDEX IF NOT EXISTS trip_vehicle_time ON trip (vehicle_id, pickup_at, ends_at)`;
   console.log("  ✓ trip");
+
+  /* ── Retire the dead vehicle schema ────────────────────────────────────────
+   * Idempotent cleanup for databases created before 2026-07-26. Dropping the
+   * column first releases the FK, then the table goes. Safe to re-run.
+   */
+  await sql`DROP INDEX IF EXISTS trip_vehicle_time`;
+  await sql`ALTER TABLE trip DROP COLUMN IF EXISTS vehicle_id`;
+  await sql`DROP TABLE IF EXISTS vehicle`;
+  console.log("  ✓ retired dead vehicle schema");
 
   console.log("\n✓ Schema up to date.\n");
 }

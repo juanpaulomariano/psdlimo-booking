@@ -40,7 +40,6 @@ export type TripRow = {
   dropoff_location: string;
   vehicle_class: string;
   driver_id: string | null;
-  vehicle_id: string | null;
   status: string;
 };
 
@@ -233,6 +232,19 @@ export async function setDriverActive(id: string, active: boolean): Promise<Driv
  * and becomes 'assigned' once a driver is set — both belong on the board).
  */
 export async function listConfirmedBookings(): Promise<DispatchBooking[]> {
+  /*
+   * SCOPED ON PURPOSE. This used to be an unbounded "every trip ever, oldest
+   * first", which meant that by month 6 the owner opened the dispatch board to a
+   * wall of long-completed rides with today's work buried below them.
+   *
+   * The window is NOT a flat "last N days" — that would hide UPCOMING bookings,
+   * which is precisely what a dispatch board exists to show. Instead:
+   *   · everything from 7 days ago onwards (recent history for context/fixups)
+   *   · plus ALL future bookings, however far out (a ride booked 3 months ahead
+   *     must still be assignable today)
+   * LIMIT is a backstop against a runaway result set, generous enough that it
+   * never truncates real work at this volume.
+   */
   return (await sql`
     SELECT
       t.external_id, t.customer_name, t.pickup_at, t.ends_at,
@@ -240,7 +252,9 @@ export async function listConfirmedBookings(): Promise<DispatchBooking[]> {
       t.driver_id, d.name AS driver_name, t.ghl_opportunity_id
     FROM trip t
     LEFT JOIN driver d ON d.id = t.driver_id
+    WHERE t.pickup_at > now() - interval '7 days'
     ORDER BY t.pickup_at ASC
+    LIMIT 300
   `) as DispatchBooking[];
 }
 
