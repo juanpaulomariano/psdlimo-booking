@@ -22,6 +22,9 @@ type Lead = {
   email: string;
   phone: string;
   itinerary: string;
+  /** What the customer asked for — shown on the card and pre-filled below. */
+  preferredDate: string;
+  passengers: number | null;
   createdAt: string;
 };
 
@@ -77,10 +80,15 @@ export function QuotesBoard() {
 function QuoteRow({ lead, onPriced }: { lead: Lead; onPriced: () => void }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState("");
+  // PRE-FILLED from what the customer asked for, so the owner confirms rather
+  // than retypes. Both remain editable — the customer's date is a request, and
+  // the owner sets the real anchor.
+  const [date, setDate] = useState(lead.preferredDate ?? "");
   const [time, setTime] = useState("");
   const [vehicle, setVehicle] = useState<string>(VEHICLE_CLASSES[0]?.id ?? "");
-  const [passengers, setPassengers] = useState("2");
+  const [passengers, setPassengers] = useState(
+    lead.passengers ? String(lead.passengers) : "2",
+  );
   const [itinerary, setItinerary] = useState(lead.itinerary);
 
   const [busy, setBusy] = useState(false);
@@ -164,6 +172,24 @@ function QuoteRow({ lead, onPriced }: { lead: Lead; onPriced: () => void }) {
         </GhostButton>
       </div>
 
+      {/* What the CUSTOMER asked for — visible without opening the form, so the
+          owner can judge and price the request at a glance. */}
+      {(lead.preferredDate || lead.passengers) && (
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+          {lead.preferredDate && (
+            <span className="text-paper-300">
+              <span className="text-paper-500">Requested date:</span>{" "}
+              {formatRequestedDate(lead.preferredDate)}
+            </span>
+          )}
+          {lead.passengers && (
+            <span className="text-paper-300">
+              <span className="text-paper-500">Passengers:</span> {lead.passengers}
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="border-ink-700 mt-3 rounded-sm border-l-2 pl-3">
         <p className="text-paper-400 text-xs whitespace-pre-wrap">{lead.itinerary || "(no details)"}</p>
       </div>
@@ -187,7 +213,11 @@ function QuoteRow({ lead, onPriced }: { lead: Lead; onPriced: () => void }) {
             <Field label="Approx. passengers">
               <Input type="number" min={1} value={passengers} onChange={setPassengers} />
             </Field>
-            <Field label="Primary pickup date">
+            <Field
+              label={
+                lead.preferredDate ? "Primary pickup date (customer asked)" : "Primary pickup date"
+              }
+            >
               <Input type="date" min={laToday()} value={date} onChange={setDate} />
             </Field>
             <Field label="Primary pickup time">
@@ -228,6 +258,24 @@ function QuoteRow({ lead, onPriced }: { lead: Lead; onPriced: () => void }) {
       )}
     </li>
   );
+}
+
+/**
+ * Render a plain "YYYY-MM-DD" the customer picked, e.g. "Sun, Sep 20, 2026".
+ *
+ * Formatted from the PARTS, not via `new Date("2026-09-20")` — that parses as
+ * UTC midnight and renders as the previous day in America/Los_Angeles, which
+ * would show the owner the wrong requested date.
+ */
+function formatRequestedDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return ymd;
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(y, m - 1, d));
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

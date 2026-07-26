@@ -592,6 +592,13 @@ export async function createQuoteLead(
     field(fieldConfig.opportunity.special_requests, input.tripDetails),
     field(fieldConfig.opportunity.booking_source, "website"),
     field(fieldConfig.opportunity.passenger_count, input.passengers ?? null),
+    // The customer's REQUESTED date, in real fields — not only smuggled into the
+    // opportunity name. Without these the owner had to read the date off the
+    // card title and retype it when pricing, and the admin could not pre-fill it.
+    // (This is a request, not a confirmed pickup; the owner sets the real anchor
+    // when they price the quote, which overwrites these.)
+    field(fieldConfig.opportunity.pickup_datetime, input.preferredDate || null),
+    field(fieldConfig.opportunity.pickup_datetime_text, input.preferredDate || null),
   ]);
 
   const response = (await ghlFetch("/opportunities/", {
@@ -625,6 +632,12 @@ export type QuoteLead = {
   email: string;
   phone: string;
   itinerary: string;
+  /** The date the CUSTOMER asked for ("YYYY-MM-DD"), or "" if they were flexible.
+   *  Shown on the card and pre-filled into the pricing form so the owner
+   *  confirms it rather than retyping it from the card title. */
+  preferredDate: string;
+  /** The party size the customer gave, or null. Pre-fills the pricing form. */
+  passengers: number | null;
   createdAt: string;
 };
 
@@ -636,6 +649,14 @@ export type QuoteLead = {
  * The search endpoint returns opportunities without full custom fields, so for
  * each candidate we read the opportunity + its contact to build the row. Kept to
  * a modest page size — quote requests are low volume.
+ *
+ * PLATFORM NOTE (measured 2026-07-26): GHL's opportunity SEARCH INDEX lags
+ * creation by roughly 1–3 seconds. A lead fetched immediately after
+ * createQuoteLead() returns 0 results; the same query 3s later returns it. The
+ * stage filter itself is fine. This does not affect production — a customer
+ * submits a request and the owner opens the admin minutes later — but it WILL
+ * make an automated test that creates-then-lists fail unless it waits. Do not
+ * "fix" a phantom filtering bug here; add the wait to the test instead.
  */
 export async function listQuoteLeads(): Promise<QuoteLead[]> {
   const locationId = requireEnv("GHL_LOCATION_ID");
@@ -662,6 +683,14 @@ export async function listQuoteLeads(): Promise<QuoteLead[]> {
     const fields = full.opportunity?.customFields ?? [];
     const itinerary =
       readFieldValue(fields.find((f) => f.id === fieldConfig.opportunity.special_requests)) ?? "";
+    // GHL DATE fields come back as a full ISO timestamp; the form needs YYYY-MM-DD.
+    const rawDate =
+      readFieldValue(fields.find((f) => f.id === fieldConfig.opportunity.pickup_datetime)) ?? "";
+    const preferredDate = rawDate ? rawDate.slice(0, 10) : "";
+    const rawPax = readFieldValue(
+      fields.find((f) => f.id === fieldConfig.opportunity.passenger_count),
+    );
+    const passengers = rawPax && Number.isFinite(Number(rawPax)) ? Number(rawPax) : null;
 
     const contactId = opp.contactId ?? full.opportunity?.contactId ?? "";
     let name = "",
@@ -683,6 +712,8 @@ export async function listQuoteLeads(): Promise<QuoteLead[]> {
       email,
       phone,
       itinerary,
+      preferredDate,
+      passengers,
       createdAt: opp.createdAt ?? full.opportunity?.createdAt ?? "",
     });
   }
