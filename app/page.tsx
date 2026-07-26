@@ -1,7 +1,26 @@
 import Link from "next/link";
 import { BookingWizard } from "./components/BookingWizard";
+import { getRateCard } from "@/lib/rates-source";
 
-export default function Home() {
+/**
+ * The booking page reads the CURRENT add-on catalogue server-side and hands it to
+ * the wizard. This is what makes owner-created add-ons appear without a deploy:
+ * the rate card is the single source of truth, and it comes from the database.
+ *
+ * Rendered per-request so a newly created add-on is visible immediately rather
+ * than on the next build.
+ */
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const rateCard = await getRateCard();
+  const addOnCatalogue = Object.entries(rateCard.addOnPrices).map(([id, a]) => ({
+    id,
+    label: a.label,
+    blurb: a.blurb,
+    price: a.price,
+  }));
+
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-16 sm:py-24">
       <header className="mb-14">
@@ -17,7 +36,7 @@ export default function Home() {
         </p>
       </header>
 
-      <BookingWizard />
+      <BookingWizard addOnCatalogue={addOnCatalogue} />
 
       {/* Manual-quote path for complex trips (contract Phase 2). */}
       <div className="border-ink-700 mt-12 border-t pt-8">

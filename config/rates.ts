@@ -207,7 +207,11 @@ export type RateCard = {
   /** id → { label, multiplier } for vehicle classes. */
   vehicleMultipliers: Record<string, { label: string; multiplier: number }>;
   /** id → { label, price } for add-ons. */
-  addOnPrices: Record<string, { label: string; price: number }>;
+  /** The add-on CATALOGUE, not just prices: this is the single source of truth
+   *  for which add-ons exist. The booking wizard renders from it, the pricing
+   *  engine charges from it, and checkout validates against it — so an add-on
+   *  the owner creates in the admin appears on the site with no deploy. */
+  addOnPrices: Record<string, { label: string; blurb: string; price: number }>;
 };
 
 /** The default rate card, built from the code constants. Behaviour with this is
@@ -223,7 +227,9 @@ export const CODE_RATE_CARD: RateCard = {
   vehicleMultipliers: Object.fromEntries(
     VEHICLE_CLASSES.map((v) => [v.id, { label: v.label, multiplier: v.multiplier }]),
   ),
-  addOnPrices: Object.fromEntries(ADD_ONS.map((a) => [a.id, { label: a.label, price: a.price }])),
+  addOnPrices: Object.fromEntries(
+    ADD_ONS.map((a) => [a.id, { label: a.label, blurb: a.blurb, price: a.price }]),
+  ),
 };
 
 /* ── Booking tag derivation ─────────────────────────────────────────────────

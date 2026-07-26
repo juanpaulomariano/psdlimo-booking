@@ -32,7 +32,7 @@ let lastGood: RateCard | null = null;
 
 type RateConfigRow = { key: string; value: string | number };
 type VehicleRow = { id: string; label: string; multiplier: string | number };
-type AddOnRow = { id: string; label: string; price: string | number };
+type AddOnRow = { id: string; label: string; blurb: string; price: string | number };
 
 function num(v: string | number): number {
   return typeof v === "number" ? v : Number.parseFloat(v);
@@ -45,7 +45,7 @@ async function buildFromDb(): Promise<RateCard> {
   const [config, vehicles, addOns] = await Promise.all([
     sql`SELECT key, value FROM rate_config` as unknown as Promise<RateConfigRow[]>,
     sql`SELECT id, label, multiplier FROM vehicle_class WHERE active = true ORDER BY sort_order` as unknown as Promise<VehicleRow[]>,
-    sql`SELECT id, label, price FROM add_on WHERE active = true ORDER BY sort_order` as unknown as Promise<AddOnRow[]>,
+    sql`SELECT id, label, blurb, price FROM add_on WHERE active = true ORDER BY sort_order` as unknown as Promise<AddOnRow[]>,
   ]);
 
   const cfg = new Map(config.map((r) => [r.key, num(r.value)]));
@@ -65,7 +65,9 @@ async function buildFromDb(): Promise<RateCard> {
       ? Object.fromEntries(vehicles.map((v) => [v.id, { label: v.label, multiplier: num(v.multiplier) }]))
       : CODE_RATE_CARD.vehicleMultipliers,
     addOnPrices: addOns.length
-      ? Object.fromEntries(addOns.map((a) => [a.id, { label: a.label, price: num(a.price) }]))
+      ? Object.fromEntries(
+          addOns.map((a) => [a.id, { label: a.label, blurb: a.blurb ?? "", price: num(a.price) }]),
+        )
       : CODE_RATE_CARD.addOnPrices,
   };
 

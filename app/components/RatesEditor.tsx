@@ -8,12 +8,13 @@
  */
 
 import { useEffect, useState } from "react";
-import { PrimaryButton } from "./ui";
+import { GhostButton, PrimaryButton } from "./ui";
 
 type EditableRates = {
   config: { key: string; value: number; label: string; category: string }[];
   vehicles: { id: string; label: string; multiplier: number; capacity: number }[];
-  addOns: { id: string; label: string; price: number }[];
+  /** Includes retired add-ons so the owner can restore one. */
+  addOns: { id: string; label: string; blurb: string; price: number; active: boolean }[];
 };
 
 // Which config keys are dollars vs a percentage vs a plain number, for the
@@ -34,6 +35,76 @@ export function RatesEditor() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // ── Add-on catalogue (create / retire) ───────────────────────────────────
+  // Separate from the bulk price save: these act on one row and take effect
+  // immediately, so the booking form reflects them on its next load.
+  const [newLabel, setNewLabel] = useState("");
+  const [newBlurb, setNewBlurb] = useState("");
+  const [newPrice, setNewPrice] = useState("");
+  const [catalogueBusy, setCatalogueBusy] = useState(false);
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
+
+  /** Re-read the rates after a catalogue change so the list reflects the DB. */
+  async function reload() {
+    try {
+      const res = await fetch("/api/admin/rates");
+      if (res.ok) setRates(await res.json());
+    } catch {
+      /* a failed refresh is cosmetic — the change already saved */
+    }
+  }
+
+  async function postCatalogue(body: unknown): Promise<boolean> {
+    setCatalogueBusy(true);
+    setCatalogueError(null);
+    try {
+      const res = await fetch("/api/admin/addons", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCatalogueError(data.error ?? "Could not save that.");
+        return false;
+      }
+      await reload();
+      return true;
+    } catch {
+      setCatalogueError("Network error. Please try again.");
+      return false;
+    } finally {
+      setCatalogueBusy(false);
+    }
+  }
+
+  async function addAddOn() {
+    if (!newLabel.trim()) {
+      setCatalogueError("Give the add-on a name.");
+      return;
+    }
+    const priceNum = Number(newPrice);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      setCatalogueError("Enter a valid price.");
+      return;
+    }
+    const ok = await postCatalogue({
+      action: "create",
+      label: newLabel,
+      blurb: newBlurb,
+      price: priceNum,
+    });
+    if (ok) {
+      setNewLabel("");
+      setNewBlurb("");
+      setNewPrice("");
+    }
+  }
+
+  function toggleAddOnActive(id: string, active: boolean) {
+    void postCatalogue({ action: "retire", id, active });
+  }
 
   useEffect(() => {
     (async () => {
@@ -146,18 +217,81 @@ export function RatesEditor() {
       </Section>
 
       {/* ── Add-ons ──────────────────────────────────────────────────────── */}
-      <Section title="Add-ons" note="Flat surcharges, applied after the multiplier.">
-        <div className="grid gap-4 sm:grid-cols-2">
+      <Section
+        title="Add-ons"
+        note="Flat surcharges, applied after the multiplier. Add your own — new add-ons appear on the booking form straight away."
+      >
+        <div className="space-y-3">
           {rates.addOns.map((a) => (
-            <NumberField
+            <div
               key={a.id}
-              label={a.label}
-              value={a.price}
-              onChange={(p) => setAddOn(a.id, p)}
-              prefix="$"
-              step={1}
-            />
+              className={`border-ink-600 flex flex-wrap items-end gap-4 rounded-sm border p-4 ${
+                a.active ? "" : "opacity-50"
+              }`}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-paper-100 text-sm">
+                  {a.label}
+                  {!a.active && <span className="text-paper-500 ml-2 text-xs">(retired)</span>}
+                </p>
+                {a.blurb && <p className="text-paper-500 mt-0.5 text-xs">{a.blurb}</p>}
+              </div>
+              <div className="w-32">
+                <NumberField
+                  label="Price"
+                  value={a.price}
+                  onChange={(p) => setAddOn(a.id, p)}
+                  prefix="$"
+                  step={1}
+                />
+              </div>
+              <GhostButton
+                className="!px-3 !py-2 !text-xs"
+                disabled={catalogueBusy}
+                onClick={() => toggleAddOnActive(a.id, !a.active)}
+              >
+                {a.active ? "Retire" : "Restore"}
+              </GhostButton>
+            </div>
           ))}
+        </div>
+
+        {/* Create a new add-on */}
+        <div className="border-ink-600 bg-ink-800/40 mt-4 rounded-sm border p-4">
+          <p className="text-paper-300 mb-3 text-xs tracking-[0.14em] uppercase">New add-on</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="Name (e.g. Champagne service)"
+              maxLength={60}
+              className="border-ink-500 bg-ink-900 text-paper-100 focus:border-brass-400 rounded-sm border px-3 py-2 text-sm outline-none"
+            />
+            <input
+              value={newBlurb}
+              onChange={(e) => setNewBlurb(e.target.value)}
+              placeholder="Short description (optional)"
+              maxLength={120}
+              className="border-ink-500 bg-ink-900 text-paper-100 focus:border-brass-400 rounded-sm border px-3 py-2 text-sm outline-none"
+            />
+            <span className="border-ink-500 bg-ink-900 focus-within:border-brass-400 flex items-center rounded-sm border">
+              <span className="text-paper-500 pl-3 text-sm">$</span>
+              <input
+                type="number"
+                min={0}
+                value={newPrice}
+                onChange={(e) => setNewPrice(e.target.value)}
+                placeholder="0"
+                className="no-spinner text-paper-100 w-full min-w-0 bg-transparent py-2 pr-3 pl-2 text-sm outline-none"
+              />
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <PrimaryButton onClick={addAddOn} disabled={catalogueBusy}>
+              Add add-on
+            </PrimaryButton>
+            {catalogueError && <p className="text-danger text-xs">{catalogueError}</p>}
+          </div>
         </div>
       </Section>
 

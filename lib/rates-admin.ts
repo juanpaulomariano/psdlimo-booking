@@ -18,7 +18,9 @@ import { invalidateRateCache } from "@/lib/rates-source";
 export type EditableRates = {
   config: { key: string; value: number; label: string; category: string }[];
   vehicles: { id: string; label: string; multiplier: number; capacity: number }[];
-  addOns: { id: string; label: string; price: number }[];
+  /** Includes RETIRED add-ons (active:false) so the admin can restore one.
+   *  The booking wizard only ever sees active ones — see lib/rates-source.ts. */
+  addOns: { id: string; label: string; blurb: string; price: number; active: boolean }[];
 };
 
 function num(v: unknown): number {
@@ -34,8 +36,10 @@ export async function readEditableRates(): Promise<EditableRates> {
     sql`SELECT id, label, multiplier, capacity FROM vehicle_class WHERE active = true ORDER BY sort_order` as unknown as Promise<
       { id: string; label: string; multiplier: string | number; capacity: number }[]
     >,
-    sql`SELECT id, label, price FROM add_on WHERE active = true ORDER BY sort_order` as unknown as Promise<
-      { id: string; label: string; price: string | number }[]
+    // ALL add-ons, active or not — the admin manages the catalogue and needs to
+    // see (and restore) retired ones. Active first, then original order.
+    sql`SELECT id, label, blurb, price, active FROM add_on ORDER BY active DESC, sort_order` as unknown as Promise<
+      { id: string; label: string; blurb: string; price: string | number; active: boolean }[]
     >,
   ]);
 
@@ -47,7 +51,13 @@ export async function readEditableRates(): Promise<EditableRates> {
       multiplier: num(v.multiplier),
       capacity: v.capacity,
     })),
-    addOns: addOns.map((a) => ({ id: a.id, label: a.label, price: num(a.price) })),
+    addOns: addOns.map((a) => ({
+      id: a.id,
+      label: a.label,
+      blurb: a.blurb ?? "",
+      price: num(a.price),
+      active: a.active,
+    })),
   };
 }
 
@@ -83,4 +93,112 @@ export async function writeRates(edits: {
 
   // The next quote must reflect the edit immediately, not after the 60s cache.
   invalidateRateCache();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Add-on catalogue — the owner CREATES and RETIRES these, not just re-prices.
+ *
+ * The rate card (lib/rates-source.ts) is the single source of truth for which
+ * add-ons exist: the booking wizard renders from it, the pricing engine charges
+ * from it, and validation checks against it. So a row inserted here appears on
+ * the website on the next page load, with no deploy.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** Raised for a clean, user-facing failure the admin form can display. */
+export class RatesAdminError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RatesAdminError";
+  }
+}
+
+/** Slugify a label into a stable id: "Champagne Service" → "champagne-service". */
+function slugifyAddOn(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .slice(0, 40) || "add-on"
+  );
+}
+
+/**
+ * Create a new add-on. The id is derived from the label and is PERMANENT — past
+ * bookings reference it, so it must never be reused for a different service.
+ * A collision (same slug) is refused rather than silently overwriting an
+ * existing add-on's price.
+ */
+export async function createAddOn(input: {
+  label: string;
+  price: number;
+  blurb?: string;
+}): Promise<{ id: string }> {
+  const label = input.label.trim();
+  if (!label) throw new RatesAdminError("An add-on needs a name.");
+
+  const id = slugifyAddOn(label);
+
+  const existing = (await sql`
+    SELECT id, active FROM add_on WHERE id = ${id} LIMIT 1
+  `) as unknown as { id: string; active: boolean }[];
+
+  if (existing.length > 0) {
+    // Reactivating a previously retired add-on is the sane behaviour; creating a
+    // second one with the same name is not.
+    if (!existing[0].active) {
+      await sql`
+        UPDATE add_on SET active = true, price = ${input.price},
+          blurb = ${input.blurb?.trim() ?? ""}, updated_at = now()
+        WHERE id = ${id}
+      `;
+      invalidateRateCache();
+      return { id };
+    }
+    throw new RatesAdminError(`An add-on called "${label}" already exists.`);
+  }
+
+  // Sort after everything currently listed.
+  const [{ next }] = (await sql`
+    SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM add_on
+  `) as unknown as { next: number }[];
+
+  await sql`
+    INSERT INTO add_on (id, label, blurb, price, sort_order)
+    VALUES (${id}, ${label}, ${input.blurb?.trim() ?? ""}, ${input.price}, ${next})
+  `;
+
+  invalidateRateCache();
+  return { id };
+}
+
+/**
+ * Retire or restore an add-on. NEVER deletes: past bookings reference the id and
+ * must keep rendering their line item correctly. A retired add-on simply stops
+ * being offered on new bookings.
+ */
+export async function setAddOnActive(id: string, active: boolean): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE add_on SET active = ${active}, updated_at = now() WHERE id = ${id} RETURNING id
+  `) as unknown as { id: string }[];
+  invalidateRateCache();
+  return rows.length > 0;
+}
+
+/** Rename an add-on / edit its blurb. The id is deliberately NOT touched. */
+export async function updateAddOnDetails(input: {
+  id: string;
+  label: string;
+  blurb?: string;
+}): Promise<boolean> {
+  const label = input.label.trim();
+  if (!label) throw new RatesAdminError("An add-on needs a name.");
+  const rows = (await sql`
+    UPDATE add_on SET label = ${label}, blurb = ${input.blurb?.trim() ?? ""}, updated_at = now()
+    WHERE id = ${input.id} RETURNING id
+  `) as unknown as { id: string }[];
+  invalidateRateCache();
+  return rows.length > 0;
 }

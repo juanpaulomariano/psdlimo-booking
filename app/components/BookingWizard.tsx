@@ -23,7 +23,6 @@ import {
   MIN_HOURS,
   MIN_LEAD_TIME_HOURS,
   VEHICLE_CLASSES,
-  type AddOnId,
   type FlatRouteId,
   type VehicleClassId,
 } from "@/config/rates";
@@ -47,7 +46,21 @@ const AIRPORT_PATTERN = /\b(airport|sfo|oak|sjc|international terminal)\b/i;
 
 const QUOTE_DEBOUNCE_MS = 400;
 
-export function BookingWizard() {
+/** One offerable add-on, as the wizard needs to render it. */
+export type AddOnOption = { id: string; label: string; blurb: string; price: number };
+
+/**
+ * @param addOnCatalogue the CURRENT add-ons, read from the database by the server
+ *   page and passed in. This is what lets the owner create an add-on in the admin
+ *   and have it appear on the site with no deploy. Falls back to the compiled
+ *   defaults so the component still renders if the page supplies nothing.
+ */
+export function BookingWizard({ addOnCatalogue }: { addOnCatalogue?: AddOnOption[] } = {}) {
+  const offeredAddOns: AddOnOption[] =
+    addOnCatalogue && addOnCatalogue.length > 0
+      ? addOnCatalogue
+      : ADD_ONS.map((a) => ({ id: a.id, label: a.label, blurb: a.blurb, price: a.price }));
+
   const [step, setStep] = useState(1);
 
   // ── Step 1: ride ──────────────────────────────────────────────────────────
@@ -66,7 +79,7 @@ export function BookingWizard() {
 
   // ── Step 2: vehicle & extras ──────────────────────────────────────────────
   const [vehicleClass, setVehicleClass] = useState<VehicleClassId>("business");
-  const [addOns, setAddOns] = useState<AddOnId[]>([]);
+  const [addOns, setAddOns] = useState<string[]>([]);
 
   // ── Step 3: contact ───────────────────────────────────────────────────────
   const [name, setName] = useState("");
@@ -241,7 +254,7 @@ export function BookingWizard() {
 
   useEffect(() => () => quoteAbort.current?.abort(), []);
 
-  function toggleAddOn(id: AddOnId) {
+  function toggleAddOn(id: string) {
     setAddOns((prev) => (prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]));
   }
 
@@ -537,7 +550,7 @@ export function BookingWizard() {
                 Add-ons
               </legend>
               <div className="space-y-2.5">
-                {ADD_ONS.map((a) => {
+                {offeredAddOns.map((a) => {
                   const selected = addOns.includes(a.id);
                   return (
                     <button

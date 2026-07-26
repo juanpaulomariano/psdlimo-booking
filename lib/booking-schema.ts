@@ -13,7 +13,6 @@
 
 import { z } from "zod";
 import {
-  ADD_ON_IDS,
   FLAT_ROUTE_IDS,
   MAX_HOURS,
   MAX_LUGGAGE,
@@ -43,7 +42,28 @@ const rideCommon = {
   vehicleClass: z.enum(VEHICLE_CLASS_IDS),
   passengers: z.coerce.number().int().min(1).max(MAX_PASSENGERS),
   luggage: z.coerce.number().int().min(0).max(MAX_LUGGAGE),
-  addOns: z.array(z.enum(ADD_ON_IDS)).default([]),
+  /*
+   * Add-on ids are NOT a fixed enum, because the owner can create new add-ons in
+   * the admin and they must work immediately without a deploy. A compile-time
+   * union cannot contain a value invented at runtime.
+   *
+   * The guarantee moves rather than disappears: the shape is validated here
+   * (short, slug-like strings, bounded count) and the MEANING is validated at
+   * pricing time — lib/pricing.ts only charges for ids present in the rate card,
+   * so an unknown or retired id is simply never billed. An attacker cannot
+   * invent an add-on, and a stale browser tab cannot charge for a withdrawn one.
+   */
+  addOns: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(40)
+        .regex(/^[a-z0-9-]+$/, "Invalid add-on"),
+    )
+    .max(20)
+    .default([]),
 };
 
 /**

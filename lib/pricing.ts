@@ -10,11 +10,9 @@
  */
 
 import {
-  ADD_ONS,
   CODE_RATE_CARD,
   CURRENCY,
   getFlatRoute,
-  type AddOnId,
   type RateCard,
 } from "@/config/rates";
 import type { RideDetails } from "@/lib/booking-schema";
@@ -149,16 +147,19 @@ export function calculatePrice(
   }
 
   // ── 3. Add-ons (flat, post-multiplier) ────────────────────────────────────
-  // Iterate ADD_ONS rather than ride.addOns so the breakdown order is stable
-  // regardless of the order the customer toggled them in.
+  // Iterate the RATE CARD, not the hardcoded ADD_ONS list: the card is the
+  // catalogue, so an add-on the owner created in the admin prices correctly
+  // without a deploy. (Iterating the card rather than ride.addOns also keeps the
+  // breakdown order stable regardless of the order the customer toggled them.)
+  //
+  // An id in ride.addOns that is NOT in the card is silently skipped — that is
+  // the retired-add-on case: a stale browser tab can still submit it, and the
+  // right answer is to not charge for something no longer offered.
   let addOnTotal = 0;
-  for (const addOn of ADD_ONS) {
-    if (ride.addOns.includes(addOn.id as AddOnId)) {
-      const priced = rateCard.addOnPrices[addOn.id];
-      if (!priced) continue; // add-on not in the card (e.g. newly removed) — skip
-      lines.push({ key: `addon-${addOn.id}`, label: priced.label, amount: priced.price });
-      addOnTotal += priced.price;
-    }
+  for (const [id, priced] of Object.entries(rateCard.addOnPrices)) {
+    if (!ride.addOns.includes(id)) continue;
+    lines.push({ key: `addon-${id}`, label: priced.label, amount: priced.price });
+    addOnTotal += priced.price;
   }
 
   // ── 4. Service & fees ─────────────────────────────────────────────────────
