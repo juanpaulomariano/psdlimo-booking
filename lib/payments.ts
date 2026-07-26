@@ -21,8 +21,24 @@ import type { BookingMetadata } from "@/lib/booking-schema";
 
 const XENDIT_API = "https://api.xendit.co";
 
-/** How long a customer has to complete payment before the invoice expires. */
-const INVOICE_DURATION_SECONDS = 60 * 60; // 1 hour
+/**
+ * How long a customer has to complete payment before the invoice expires.
+ *
+ * TWO windows, because the two payment paths reach the customer differently:
+ *
+ *   INSTANT (default, 1h) — the customer is on the payment page RIGHT NOW,
+ *     redirected straight from checkout. If they wander off, the quote is stale
+ *     and they should re-book at current rates. A short window is correct here.
+ *
+ *   QUOTE (7 days) — the link is EMAILED after the owner prices a custom trip.
+ *     Real behaviour is read-at-lunch, discuss, pay tomorrow. A 1-hour window
+ *     killed every emailed link before it could be used. Seven days survives a
+ *     weekend without letting a priced quote drift far from the rates and
+ *     availability it assumed; if it lapses, the owner re-prices (two minutes)
+ *     and a fresh link is issued.
+ */
+const INVOICE_DURATION_INSTANT_S = 60 * 60; // 1 hour
+const INVOICE_DURATION_QUOTE_S = 7 * 24 * 60 * 60; // 7 days
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Neutral types — deliberately provider-agnostic.
@@ -38,6 +54,13 @@ export type CreateInvoiceInput = {
   metadata: BookingMetadata;
   successUrl: string;
   failureUrl: string;
+  /**
+   * How the payment link reaches the customer, which decides how long it lives.
+   * "instant" (default) — redirected to it now; "quote" — emailed to them later.
+   * Deliberately expressed in OUR vocabulary, not the provider's, so the swap
+   * boundary holds.
+   */
+  linkLifetime?: "instant" | "quote";
 };
 
 export type CreateInvoiceResult = {
@@ -162,7 +185,10 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
         amount,
         currency,
         description: input.description,
-        invoice_duration: INVOICE_DURATION_SECONDS,
+        invoice_duration:
+          input.linkLifetime === "quote"
+            ? INVOICE_DURATION_QUOTE_S
+            : INVOICE_DURATION_INSTANT_S,
         payer_email: input.customer.email,
         customer: {
           given_names: input.customer.name,

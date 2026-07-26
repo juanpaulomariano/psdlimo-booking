@@ -113,6 +113,8 @@ export async function priceQuoteAndInvoice(
     metadata,
     successUrl: `${baseUrl}/success?ref=${encodeURIComponent(externalId)}`,
     failureUrl: `${baseUrl}/cancelled?ref=${encodeURIComponent(externalId)}`,
+    // EMAILED, not redirected to — needs a window measured in days, not an hour.
+    linkLifetime: "quote",
   });
 
   return {

@@ -20,6 +20,7 @@ import { calculatePrice } from "@/lib/pricing";
 import { getRateCard } from "@/lib/rates-source";
 import { RoutingError, getDrivingRoute } from "@/lib/maps";
 import { PaymentError, createInvoice } from "@/lib/payments";
+import { createPendingBookingLead } from "@/lib/ghl";
 import {
   MIN_LEAD_TIME_HOURS,
   deriveBookingTags,
@@ -192,6 +193,22 @@ export async function POST(request: Request) {
       `[checkout] invoice created ${externalId} — $${breakdown.total} USD ` +
         `charged as ${invoice.chargedAmount} ${invoice.chargedCurrency} (provider ${invoice.providerInvoiceId})`,
     );
+
+    /*
+     * ── Abandoned-checkout capture ─────────────────────────────────────────
+     * The customer is about to be sent to the payment page. Record a PENDING
+     * lead now so that if they never finish, the owner can still see and chase
+     * them — previously such a customer vanished entirely.
+     *
+     * Ordering matters: this runs AFTER the invoice succeeds, so a provider
+     * failure never leaves a "pending payment" lead for someone who never
+     * reached a payment page. It is awaited but non-fatal (the function never
+     * throws), so a CRM hiccup cannot stop the customer paying.
+     *
+     * On payment, the webhook PROMOTES this same opportunity to Confirmed via
+     * payment_ref_id — one record, New Inquiry → Confirmed, never a duplicate.
+     */
+    await createPendingBookingLead(metadata);
 
     return NextResponse.json({
       invoiceUrl: invoice.invoiceUrl,

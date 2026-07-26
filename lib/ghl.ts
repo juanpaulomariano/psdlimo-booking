@@ -291,7 +291,6 @@ export async function createBookingOpportunity(
   booking: BookingMetadata,
 ): Promise<string> {
   const locationId = requireEnv("GHL_LOCATION_ID");
-  const opportunityFields = fieldConfig.opportunity;
 
   const vehicleLabel = (() => {
     try {
@@ -402,12 +401,132 @@ async function promoteToConfirmed(opportunityId: string, booking: BookingMetadat
   console.log(`[ghl] promoted quote opportunity ${opportunityId} → Confirmed ($${booking.quoted_total})`);
 }
 
+/**
+ * Remove a tag from a contact. Tags are otherwise only ever ADDED, which is fine
+ * for descriptive tags (`ride.airport`) but wrong for STATE tags: a contact who
+ * abandoned checkout and later paid must stop being "abandoned", or the owner's
+ * follow-up list fills with people who already bought.
+ *
+ * Never throws — a stale tag is untidy, not dangerous, and must not fail a
+ * booking that has already been paid for.
+ */
+async function removeContactTag(contactId: string, tag: string): Promise<void> {
+  if (!contactId) return;
+  try {
+    await ghlFetch(`/contacts/${contactId}/tags`, {
+      method: "DELETE",
+      body: { tags: [tag] },
+    });
+    console.log(`[ghl] removed tag "${tag}" from contact ${contactId}`);
+  } catch (err) {
+    console.error(
+      `[ghl] could not remove tag "${tag}" from ${contactId} (non-fatal): ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 /** Read the stage id of an opportunity (to decide promote vs. skip). */
 async function readOpportunityStage(opportunityId: string): Promise<string | null> {
   const r = (await ghlFetch(`/opportunities/${opportunityId}`)) as {
     opportunity?: { pipelineStageId?: string };
   };
   return r.opportunity?.pipelineStageId ?? null;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Pending booking — the abandoned-checkout capture.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Create a PENDING-PAYMENT lead the moment a customer reaches the payment page.
+ *
+ * WHY THIS EXISTS: without it, a customer who clicks Pay and then hesitates
+ * leaves NO trace anywhere — no lead, no follow-up, no way for the owner to
+ * recover them. They are simply lost. (The old rule "an abandoned invoice leaves
+ * zero trace, that is correct behaviour" was written before the CRM had a lead
+ * concept; it is now leaving recoverable money on the floor.)
+ *
+ * This is a LEAD, not a booking: it lands in **New Inquiry**, carries no
+ * `payment.paid` tag, and makes no claim that money changed hands. It is tagged
+ * `lead.abandoned` so the owner can filter New Inquiry to exactly "reached
+ * payment, didn't finish" and follow up.
+ *
+ * THE PROMOTION HINGE: the opportunity is stamped with `payment_ref_id =
+ * external_id`. When payment succeeds, the webhook's idempotency search finds
+ * THIS record and PROMOTES it to Confirmed in place (see pushBookingToGHL) —
+ * exactly the mechanism the priced-quote flow uses. So a completed checkout
+ * produces ONE opportunity that moves New Inquiry → Confirmed, never a duplicate.
+ *
+ * PROVIDER-INDEPENDENT: this runs before any payment provider is involved, so it
+ * survives the Xendit→Stripe swap untouched.
+ *
+ * NEVER THROWS. A CRM hiccup must not stop a customer from paying — the lead is
+ * a recovery aid, not part of the payment path. Returns null if it could not be
+ * created; the caller carries on regardless.
+ */
+export async function createPendingBookingLead(
+  booking: BookingMetadata,
+): Promise<{ contactId: string; opportunityId: string } | null> {
+  try {
+    const locationId = requireEnv("GHL_LOCATION_ID");
+    const newInquiryStageId = (fieldConfig as { stageNewInquiryId?: string }).stageNewInquiryId;
+    if (!newInquiryStageId) {
+      console.warn("[ghl] no stageNewInquiryId — skipping abandoned-checkout capture.");
+      return null;
+    }
+
+    // Contact tags deliberately EXCLUDE payment.* — nothing has been paid yet.
+    // The webhook applies the full paid tag set when it promotes this record.
+    const contactId = await upsertContact({
+      name: booking.contact_name,
+      email: booking.contact_email,
+      phone: booking.contact_phone,
+      tags: ["source.website", "lead.abandoned"],
+      preferredVehicle: booking.vehicle_class,
+      company: booking.company_name,
+    });
+
+    const vehicleLabel = (() => {
+      try {
+        return getVehicleClass(booking.vehicle_class).label;
+      } catch {
+        return booking.vehicle_class;
+      }
+    })();
+
+    const response = (await ghlFetch("/opportunities/", {
+      method: "POST",
+      body: {
+        pipelineId: fieldConfig.pipelineId,
+        locationId,
+        contactId,
+        pipelineStageId: newInquiryStageId,
+        // "Pending payment" reads unambiguously on the board next to real
+        // enquiries — the owner knows at a glance this one nearly converted.
+        name: `Pending payment — ${booking.contact_name} — ${formatPickupShort(booking.pickup_datetime)}`,
+        status: "open",
+        monetaryValue: booking.quoted_total,
+        // Full booking detail INCLUDING payment_ref_id — the promotion hinge.
+        customFields: bookingOpportunityFields(booking, vehicleLabel),
+      },
+    })) as { opportunity?: { id?: string }; id?: string };
+
+    const opportunityId = response.opportunity?.id ?? response.id;
+    if (!opportunityId) return null;
+
+    console.log(
+      `[ghl] pending-payment lead ${opportunityId} created for ${booking.external_id}`,
+    );
+    return { contactId, opportunityId };
+  } catch (err) {
+    // Non-fatal by design: the customer must still reach the payment page.
+    console.error(
+      `[ghl] abandoned-checkout capture failed for ${booking.external_id} ` +
+        `(checkout continues normally): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -882,8 +1001,12 @@ export async function pushBookingToGHL(booking: BookingMetadata): Promise<PushRe
   if (existing) {
     const stage = await readOpportunityStage(existing);
     if (stage && stage !== fieldConfig.stageConfirmedId) {
-      // Case (b): a priced quote awaiting payment. Move it to Confirmed + fill in.
+      // Case (b): a pending record awaiting payment — either a priced quote or an
+      // abandoned-checkout capture. Move it to Confirmed + fill in.
       await promoteToConfirmed(existing, booking);
+      // It is no longer "abandoned" — they paid. Leaving the tag would fill the
+      // owner's follow-up list with customers who already bought.
+      await removeContactTag(contactId, "lead.abandoned");
       const appointmentId = await ensureAppointment(contactId, existing, booking);
       return { created: true, contactId, opportunityId: existing, appointmentId };
     }

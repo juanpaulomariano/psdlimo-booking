@@ -112,6 +112,10 @@ const REQUIRED_TAGS = [
   "method.card",
   "payment.paid",
   "client.corporate",
+  // lead.* — the NATURE of a lead (as opposed to source.*, its channel).
+  "lead.quote-request", // customer asked for a custom quote
+  "lead.quoted", // owner priced it; payment link sent
+  "lead.abandoned", // reached the payment page, didn't finish — recoverable
 ] as const;
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */

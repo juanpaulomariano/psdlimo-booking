@@ -45,12 +45,23 @@ export default async function SuccessPage({
           </svg>
         </div>
 
+        {/*
+          WORDING IS DELIBERATE. This page knows ONE thing for certain: the
+          provider redirected here, so payment succeeded. It does NOT know the
+          booking reached the CRM — that happens on a separate server-to-server
+          callback this page never sees (and must not check: a customer-editable
+          URL is not evidence). So we state the fact we have — payment received —
+          and point at the confirmation email as the proof that follows. Saying
+          "your ride is confirmed" would assert something we cannot verify, and
+          would be a lie in the exact case that matters: a delayed or failed
+          callback.
+        */}
         <h1 className="font-display text-paper-100 text-4xl leading-tight">
-          Your ride is confirmed
+          Payment received
         </h1>
 
         <p className="text-paper-300 mt-4 leading-relaxed">
-          Payment received. A confirmation is on its way to your inbox, and your chauffeur
+          Thank you. Your confirmation is on its way to your inbox, and your chauffeur
           details will follow closer to the pickup time.
         </p>
 
