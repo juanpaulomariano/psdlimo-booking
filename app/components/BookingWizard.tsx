@@ -174,7 +174,12 @@ export function BookingWizard({ addOnCatalogue }: { addOnCatalogue?: AddOnOption
   /** Build the ride payload; null when incomplete, which suppresses quoting. */
   const ridePayload = useMemo(() => {
     if (!pickupAt || !leadTimeOk) return null;
-    // THE GATE: no vehicle chosen, no price. A quote requires a car.
+    /*
+     * A vehicle is required to PRICE a ride, so this payload is null until one
+     * is chosen. Note that step-1 completeness is deliberately NOT derived from
+     * this — the vehicle is chosen on step 2, so gating "continue to step 2" on
+     * having a vehicle would deadlock the wizard. See step1Complete below.
+     */
     if (!effectiveVehicleClass) return null;
 
     const common = {
@@ -273,7 +278,25 @@ export function BookingWizard({ addOnCatalogue }: { addOnCatalogue?: AddOnOption
   }
 
   // ── Validation ────────────────────────────────────────────────────────────
-  const step1Complete = Boolean(ridePayload);
+  /*
+   * Step 1 is complete when the RIDE DETAILS are valid — deliberately NOT
+   * Boolean(ridePayload), because that also requires a vehicle, which is only
+   * chosen on step 2. Deriving it from the payload deadlocked the wizard: you
+   * could not reach the vehicle step without already having a vehicle.
+   */
+  const step1Complete = useMemo(() => {
+    if (!pickupAt || !leadTimeOk) return false;
+    switch (rideType) {
+      case "distance":
+        if (pickup.trim().length < 3 || dropoff.trim().length < 3) return false;
+        // Round trip on but no valid return time yet — not ready to continue.
+        return !isRoundTrip || Boolean(returnAt);
+      case "hourly":
+        return pickup.trim().length >= 3;
+      case "flat":
+        return true;
+    }
+  }, [pickupAt, leadTimeOk, rideType, pickup, dropoff, isRoundTrip, returnAt]);
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const phoneValid = phone.trim().length >= 7 && /^[+()\-.\s\d]+$/.test(phone.trim());
