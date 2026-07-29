@@ -78,7 +78,15 @@ export function BookingWizard({ addOnCatalogue }: { addOnCatalogue?: AddOnOption
   const [luggage, setLuggage] = useState(2);
 
   // ── Step 2: vehicle & extras ──────────────────────────────────────────────
-  const [vehicleClass, setVehicleClass] = useState<VehicleClassId>("business");
+  /*
+   * NO DEFAULT VEHICLE — null until the customer actually chooses one.
+   *
+   * Previously this defaulted to "business", which meant a price appeared as
+   * soon as the addresses and time were set: the customer was quoted for a car
+   * they had never picked. Starting empty makes the choice real and the price
+   * honest — it exists only once there is something to price.
+   */
+  const [vehicleClass, setVehicleClass] = useState<VehicleClassId | null>(null);
   const [addOns, setAddOns] = useState<string[]>([]);
 
   // ── Step 3: contact ───────────────────────────────────────────────────────
@@ -140,9 +148,13 @@ export function BookingWizard({ addOnCatalogue }: { addOnCatalogue?: AddOnOption
    * cascading re-render — and for a beat the customer would see a price for a
    * car they cannot legally travel in.
    */
-  const effectiveVehicleClass = useMemo<VehicleClassId>(() => {
+  const effectiveVehicleClass = useMemo<VehicleClassId | null>(() => {
+    // Nothing chosen yet — there is no vehicle to quote, and that is correct.
+    if (!vehicleClass) return null;
     const selected = VEHICLE_CLASSES.find((v) => v.id === vehicleClass);
     if (selected && passengers <= selected.capacity) return vehicleClass;
+    // Their choice can no longer seat the party (they raised the passenger
+    // count) — fall back to one that can, rather than quote an impossible car.
     return VEHICLE_CLASSES.find((v) => v.capacity >= passengers)?.id ?? vehicleClass;
   }, [vehicleClass, passengers]);
 
@@ -162,6 +174,8 @@ export function BookingWizard({ addOnCatalogue }: { addOnCatalogue?: AddOnOption
   /** Build the ride payload; null when incomplete, which suppresses quoting. */
   const ridePayload = useMemo(() => {
     if (!pickupAt || !leadTimeOk) return null;
+    // THE GATE: no vehicle chosen, no price. A quote requires a car.
+    if (!effectiveVehicleClass) return null;
 
     const common = {
       pickupAt,
@@ -507,6 +521,13 @@ export function BookingWizard({ addOnCatalogue }: { addOnCatalogue?: AddOnOption
               <legend className="text-paper-300 mb-3 text-xs tracking-[0.14em] uppercase">
                 Vehicle class
               </legend>
+              {/* No car is pre-selected, so tell the customer why there is no
+                  price yet rather than leaving an unexplained blank. */}
+              {!effectiveVehicleClass && (
+                <p className="text-paper-500 mb-3 text-xs">
+                  Choose a vehicle to see your price.
+                </p>
+              )}
               <div className="space-y-2.5">
                 {VEHICLE_CLASSES.map((v) => {
                   const tooSmall = passengers > v.capacity;

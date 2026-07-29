@@ -22,6 +22,58 @@ import { MAP_STYLE_PARAMS } from "@/config/map-style";
 /** Cache for a day: the same A→B always renders the same image. */
 const CACHE_SECONDS = 86_400;
 
+/**
+ * Fetch the REAL ROAD GEOMETRY for a route, as an encoded polyline.
+ *
+ * Returns the shape of the drive and NOTHING ELSE. The Routes API response also
+ * contains `distanceMeters`, and we deliberately never read it: the priced
+ * distance comes from computeRouteMatrix in lib/maps.ts and must remain the only
+ * mileage figure in the system. Two slightly different numbers on one screen is
+ * worse than a plain map.
+ *
+ * Returns null on any failure so the caller falls back to a straight line —
+ * a decorative map must never break a booking page.
+ */
+async function fetchRoutePolyline(
+  origin: string,
+  destination: string,
+  apiKey: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        // GEOMETRY ONLY. The field mask is the enforcement: we do not even
+        // receive a distance, so it cannot leak into the UI by accident.
+        "X-Goog-FieldMask": "routes.polyline.encodedPolyline",
+      },
+      body: JSON.stringify({
+        origin: { address: origin },
+        destination: { address: destination },
+        travelMode: "DRIVE",
+        // The drawn line is decorative; traffic-aware routing would add latency
+        // and could make the same route render differently minute to minute.
+        routingPreference: "TRAFFIC_UNAWARE",
+      }),
+      next: { revalidate: CACHE_SECONDS },
+    });
+
+    if (!response.ok) {
+      console.error(`[route-map] polyline lookup ${response.status}`);
+      return null;
+    }
+    const data = (await response.json()) as {
+      routes?: Array<{ polyline?: { encodedPolyline?: string } }>;
+    };
+    return data.routes?.[0]?.polyline?.encodedPolyline ?? null;
+  } catch (err) {
+    console.error("[route-map] polyline lookup failed:", err);
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const pickup = searchParams.get("pickup")?.trim();
@@ -40,37 +92,45 @@ export async function GET(request: Request) {
   }
 
   const params = new URLSearchParams({
-    size: "640x360",
+    // 800x450 (16:9) rather than 640x360 — noticeably crisper on a large screen
+    // and in screen recordings, at the same retina scale.
+    size: "800x450",
     scale,
     format: "png",
     maptype: "roadmap",
     key: apiKey,
   });
 
-  // Custom markers: brass pin at pickup, white at drop-off. Labels A/B so the
-  // direction of travel is readable without a legend.
+  // Brass pin at pickup, white at drop-off. Labels A/B so the direction of
+  // travel is readable without a legend.
   params.append("markers", `color:0xc9a961|label:A|${pickup}`);
+
   if (dropoff && dropoff.length >= 3) {
     params.append("markers", `color:0xf5f4f1|label:B|${dropoff}`);
+
     /*
-     * A STRAIGHT LINE, DELIBERATELY — and it must never be mistaken for the
-     * priced distance.
+     * THE ACTUAL ROAD ROUTE — following real streets, not a ruler line between
+     * two pins. A straight line across the bay reads as a placeholder; the real
+     * geometry reads as a journey.
      *
-     * Measured on SFO -> Hotel Zephyr: the straight line is 13.1 mi while the
-     * real driving distance is 16.0 mi — 23% longer by road. Pricing off the
-     * straight line would undercharge that single ride by $13.39.
+     * THE SEPARATION THAT MATTERS IS PRESERVED. We request geometry ONLY (see
+     * fetchRoutePolyline's field mask), so no distance is even returned to this
+     * file. The priced mileage still comes exclusively from computeRouteMatrix
+     * in lib/maps.ts via /api/quote and /api/checkout. There remains exactly one
+     * distance figure in the system, and the map cannot contradict it.
      *
-     * The price comes from Routes API computeRouteMatrix in lib/maps.ts, which
-     * returns true road distance, and it is imported ONLY by /api/quote and
-     * /api/checkout. This file imports no pricing code, and the RouteMap
-     * component receives only two address strings — it cannot see a distance or
-     * a price. The two paths are structurally incapable of crossing.
-     *
-     * Drawing the real polyline would need a Directions call returning its own
-     * mileage, which could disagree with the priced figure and put two
-     * conflicting numbers in front of the customer.
+     * Fallback: if the lookup fails we draw the straight line as before. A
+     * decorative map must degrade, never break the page. Note the straight line
+     * is geometrically wrong (SFO → Hotel Zephyr: 13.1 mi direct vs 16.0 mi by
+     * road) which is exactly why it was never used for pricing.
      */
-    params.append("path", `color:0xc9a961aa|weight:3|${pickup}|${dropoff}`);
+    const encoded = await fetchRoutePolyline(pickup, dropoff, apiKey);
+    // Weight 5 and fully opaque: on a dark map a thin translucent line
+    // disappears, especially once a video is compressed.
+    params.append(
+      "path",
+      encoded ? `color:0xc9a961ff|weight:5|enc:${encoded}` : `color:0xc9a961ff|weight:5|${pickup}|${dropoff}`,
+    );
   }
 
   // Dark styling to match the page. Google ignores unknown style params rather
